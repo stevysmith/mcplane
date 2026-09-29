@@ -42,5 +42,15 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
     "zod": "^4.6.5"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stevysmith/mcplane.git"
+  },
+  "homepage": "https://github.com/stevysmith/mcplane#readme",
+  "bugs": {
+    "url": "https://github.com/stevysmith/mcplane/issues"
+  },
+  "author": "Steve Smith",
+  "mcpName": "io.github.stevysmith/mcplane"
 }

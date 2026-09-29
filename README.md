@@ -127,7 +127,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: <owner>/mcplane@v0
+      - uses: stevysmith/mcplane@v0
         with:
           command: check   # preflight + drift --ci
 ```
@@ -143,7 +143,7 @@ Publishing to the MCP Registry from CI needs no secrets for `io.github.*` names:
       - run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
           sudo mv mcp-publisher /usr/local/bin/
-      - uses: <owner>/mcplane@v0
+      - uses: stevysmith/mcplane@v0
         with:
           command: publish mcp-registry --yes
 ```
