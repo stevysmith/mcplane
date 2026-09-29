@@ -4,6 +4,14 @@ import { STORE_NAMES, type Manifest, type StoreId } from './types.js';
 
 export const SCHEMA_URL = 'https://unpkg.com/mcplane/schema.json';
 
+/** The manifest as one store sees it: that store's listing text over the shared fields. */
+export function forStore(m: Manifest, store: StoreId): Manifest {
+  const o = m.listing?.[store];
+  if (!o) return m;
+  const set = Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== ''));
+  return { ...m, ...set };
+}
+
 export function storesOf(m: Manifest): StoreId[] {
   return m.stores?.length ? m.stores : (Object.keys(STORE_NAMES) as StoreId[]);
 }

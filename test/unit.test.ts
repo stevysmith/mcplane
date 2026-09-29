@@ -140,3 +140,11 @@ test('product prices and sibling tool names are not flagged', () => {
   assert.equal(by['tools.no-upsell'], 'pass');
   assert.equal(by['tools.no-instructions'], 'pass');
 });
+
+test('per-store listing text overrides the shared fields for that store only', async () => {
+  const { forStore } = await import('../src/draft.js');
+  const withClaude: Manifest = { ...m, description: 'Shared.', listing: { 'claude-connectors': { description: 'Ask Claude.' } } };
+  assert.equal(forStore(withClaude, 'claude-connectors').description, 'Ask Claude.');
+  assert.equal(forStore(withClaude, 'chatgpt').description, 'Shared.');
+  assert.equal(forStore(withClaude, 'claude-connectors').oneLiner, m.oneLiner);
+});

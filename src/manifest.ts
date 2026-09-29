@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { STORE_NAMES, type Manifest } from './types.js';
 
-export { draftManifest, storesOf } from './draft.js';
+export { draftManifest, forStore, storesOf } from './draft.js';
 
 export const MANIFEST_FILE = 'mcplane.json';
 export { SCHEMA_URL } from './draft.js';

@@ -4,6 +4,7 @@
  * public record is the result. Coverage decays quietly, so this is meant to
  * run on a schedule.
  */
+import { forStore } from './draft.js';
 import { liveTools, repoHead } from './drift.js';
 import { registryName } from './publish.js';
 import { STORE_NAMES, type Manifest, type StoreId } from './types.js';
@@ -52,13 +53,14 @@ async function registry(m: Manifest): Promise<Listing> {
 }
 
 async function claudeConnectors(m: Manifest, token?: string): Promise<Listing> {
+  m = forStore(m, 'claude-connectors');
   const data = await getJson<{ servers?: any[] }>('https://api.anthropic.com/api/directory/servers?verified_tier=anthropic,partner,community&visibility=commercial&limit=5000');
   if (!data) return { store: 'claude-connectors', state: 'unknown', issues: [], note: 'Anthropic’s directory feed did not answer.' };
   const hit = data.servers?.find((s) => bare(s.remote?.url ?? s.url) === bare(m.server.url) || norm(s.name).toLowerCase() === norm(m.title).toLowerCase());
   if (!hit) return { store: 'claude-connectors', state: 'missing', issues: [] };
   const issues: string[] = [];
-  if (m.oneLiner && norm(hit.one_liner) !== norm(m.oneLiner)) issues.push('one-liner differs from mcplane.json');
-  if (m.description && norm(hit.description) !== norm(m.description)) issues.push('description differs from mcplane.json');
+  if (m.oneLiner && norm(hit.one_liner) !== norm(m.oneLiner)) issues.push('one-liner differs from mcplane.json (edit the listing, or set listing["claude-connectors"] if the difference is intended)');
+  if (m.description && norm(hit.description) !== norm(m.description)) issues.push('description differs from mcplane.json (edit the listing, or set listing["claude-connectors"] if the difference is intended)');
   // The tool list is synced from your server at submission and isn't an editable field: compare it with what you serve now.
   const published: string[] = hit.tool_names ?? [];
   const live = (await liveTools(m, token).catch(() => [])).map((t) => t.name);

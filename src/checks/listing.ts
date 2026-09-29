@@ -1,3 +1,4 @@
+import { forStore } from '../draft.js';
 import type { Check, Manifest, StoreId, Tool } from '../types.js';
 
 const get = (url: string) => fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(12_000), headers: { 'user-agent': 'mcplane' } }).catch(() => null);
@@ -96,9 +97,10 @@ export async function listingChecks(m: Manifest, tools: Tool[], stores: StoreId[
     else if (v) checks.push({ id, level: 'pass', title: `${label} fits (${max} characters)`, stores: s });
   };
   if (has(stores, 'chatgpt')) {
-    len(m.title, 30, 'listing.name', 'Display name', ['chatgpt']);
-    len(m.subtitle, 30, 'listing.subtitle', 'Subtitle', ['chatgpt']);
-    const prompts = m.prompts ?? [];
+    const g = forStore(m, 'chatgpt');
+    len(g.title, 30, 'listing.name', 'Display name', ['chatgpt']);
+    len(g.subtitle, 30, 'listing.subtitle', 'Subtitle', ['chatgpt']);
+    const prompts = g.prompts ?? [];
     const bad = prompts.filter((p) => p.length > 128 || /(^|\s)@\w/.test(p));
     const dupes = prompts.filter((p, i) => prompts.findIndex((q) => q.trim().toLowerCase() === p.trim().toLowerCase()) !== i);
     if (bad.length || dupes.length) {
@@ -107,9 +109,9 @@ export async function listingChecks(m: Manifest, tools: Tool[], stores: StoreId[
       checks.push({ id: 'listing.prompts', level: 'pass', title: 'Starter prompts are short, unique and free of @mentions', stores: ['chatgpt'] });
     }
   }
-  if (has(stores, 'claude-connectors', 'claude-plugins')) len(m.title, 100, 'listing.claude-name', 'Name for Claude', ['claude-connectors', 'claude-plugins']);
-  if (has(stores, 'claude-connectors', 'claude-plugins')) len(m.oneLiner, 200, 'listing.one-liner', 'One-liner', ['claude-connectors', 'claude-plugins']);
-  len(m.description, 2000, 'listing.description', 'Description', []);
+  if (has(stores, 'claude-connectors', 'claude-plugins')) len(forStore(m, 'claude-connectors').title, 100, 'listing.claude-name', 'Name for Claude', ['claude-connectors', 'claude-plugins']);
+  if (has(stores, 'claude-connectors', 'claude-plugins')) len(forStore(m, 'claude-connectors').oneLiner, 200, 'listing.one-liner', 'One-liner', ['claude-connectors', 'claude-plugins']);
+  len(forStore(m, 'claude-connectors').description, 2000, 'listing.description', 'Description', []);
 
   // Test cases must name tools the server actually has; descriptions drift away from live servers.
   const named = [...new Set((m.tests?.positive ?? []).flatMap((t) => t.tools))];

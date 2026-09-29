@@ -279,6 +279,37 @@
     "reviewerAccess": {
       "type": "string",
       "description": "How reviewers get in, for servers behind sign-in. Say where credentials live; never put a password here."
+    },
+    "listing": {
+      "type": "object",
+      "description": "Per-store listing text, like fastlane's per-language metadata. Each store falls back to the top-level title, subtitle, oneLiner, description and prompts.",
+      "propertyNames": {
+        "$ref": "#/$defs/store"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "subtitle": {
+            "type": "string"
+          },
+          "oneLiner": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "prompts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
     }
   }
 }

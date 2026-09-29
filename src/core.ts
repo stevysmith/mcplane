@@ -56,7 +56,7 @@ export async function preflight(m: Manifest, opts: { stores?: StoreId[]; registe
   return { checks, reminders: reminders(m, stores), stores };
 }
 
-export { draftManifest, storesOf, SCHEMA_URL } from './draft.js';
+export { draftManifest, forStore, storesOf, SCHEMA_URL } from './draft.js';
 export { toolChecks } from './checks/tools.js';
 export { STORE_NAMES } from './types.js';
 export type { Check, Level, Manifest, StoreId, Tool } from './types.js';

@@ -237,6 +237,18 @@ It's what powers [reviewtimes.fyi/check](https://reviewtimes.fyi/check). The TLS
 
 One file describes your server and its listings. [`schema.json`](schema.json) gives editors completion and validation; `mcplane init` adds the `$schema` line. [`examples/mcplane.json`](examples/mcplane.json) is a complete one, from [Review Times](https://reviewtimes.fyi)' own ChatGPT and Claude submissions.
 
+
+Each store can have its own listing text, the way fastlane keeps metadata per language. Anything you leave out falls back to the shared fields:
+
+```json
+"description": "Shows how long AI app stores are taking to review submissions…",
+"listing": {
+  "claude-connectors": { "description": "Ask Claude before you submit (\"How long is Claude plugin review taking?\")…" }
+}
+```
+
+Packs, checks, `drift` and `listings` all use the right text for each store.
+
 ## fastlane, mapped
 
 | fastlane | mcplane |

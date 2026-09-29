@@ -60,6 +60,8 @@ export interface Manifest {
   icon?: string;
   prompts?: string[];
   stores?: StoreId[];
+  /** Per-store listing text, like fastlane's per-language metadata. Each store falls back to the top-level fields. */
+  listing?: Partial<Record<StoreId, ListingText>>;
   /** Review test cases: ChatGPT wants exactly 5 positive and 3 negative. */
   tests?: {
     positive?: { scenario: string; prompt: string; tools: string[]; expected: string }[];
@@ -77,6 +79,14 @@ export interface Manifest {
   lanes?: Record<string, string[]>;
   /** How reviewers get in, for servers behind sign-in. Never put the password here; say where it lives. */
   reviewerAccess?: string;
+}
+
+export interface ListingText {
+  title?: string;
+  subtitle?: string;
+  oneLiner?: string;
+  description?: string;
+  prompts?: string[];
 }
 
 export interface Tool {

@@ -11,6 +11,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { ensureLocalDir } from './manifest.js';
+import { forStore } from './draft.js';
 import { McpClient } from './mcp-client.js';
 import { STORE_NAMES, type Manifest, type StoreId, type Tool } from './types.js';
 
@@ -98,7 +99,7 @@ export async function takeSnapshot(m: Manifest, store: StoreId, opts: { version?
     version: opts.version,
     state: opts.state,
     tools: tools.map(shape),
-    listing: listingOf(m),
+    listing: listingOf(forStore(m, store)),
     repoSha,
   };
   await ensureLocalDir(dir);
@@ -155,9 +156,8 @@ export async function drift(m: Manifest, stores: StoreId[], opts: { token?: stri
   const missing: StoreId[] = [];
   const [live, head] = await Promise.all([liveTools(m, opts.token), repoHead(m.repository)]);
   const now = live.map(shape);
-  const listing = listingOf(m);
-
   for (const store of stores) {
+    const listing = listingOf(forStore(m, store));
     const snap = await readSnapshot(store, dir);
     if (!snap) {
       missing.push(store);

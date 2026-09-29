@@ -7,6 +7,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { ensureLocalDir } from './manifest.js';
+import { forStore } from './draft.js';
 import { McpClient } from './mcp-client.js';
 import type { Manifest, StoreId, Tool } from './types.js';
 
@@ -63,6 +64,7 @@ function justify(t: Tool, product: string, own?: { readOnly?: string; openWorld?
 }
 
 export async function chatgptPack(m: Manifest, token?: string): Promise<Pack> {
+  m = forStore(m, 'chatgpt');
   const tools = await listTools(m, token);
   const problems: string[] = [];
   const todo: string[] = [];
@@ -162,6 +164,7 @@ function readWrite(tools: Tool[]): string {
 }
 
 export async function claudePack(m: Manifest, token?: string): Promise<Pack> {
+  m = forStore(m, 'claude-connectors');
   const tools = await listTools(m, token);
   const problems: string[] = [];
   if ((m.oneLiner ?? '').length > 200) problems.push(`oneLiner is ${m.oneLiner!.length} characters; the limit is 200`);
@@ -225,6 +228,7 @@ When it's in: \`mcplane submitted claude-connectors\`
 }
 
 export async function simplePack(m: Manifest, store: StoreId): Promise<Pack> {
+  m = forStore(m, store);
   const problems: string[] = [];
   let md = '';
   if (store === 'cursor') {
