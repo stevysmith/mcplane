@@ -92,6 +92,35 @@ export function toolChecks(tools: Tool[]): Check[] {
       : { id: 'tools.bearer-writes', level: 'pass', title: 'Writes are bound to an owner, not a token in the chat' },
   );
 
+  // OpenAI's reviewers read openWorldHint as "can change public or third-party state": sending email, posting, publishing.
+  const openWorld = tools.filter(
+    (t) =>
+      t.annotations?.openWorldHint === false &&
+      /\b(send|sends|email|emails|post|posts|publish|publishes|public|tweet|message|notify|notifies)\b/i.test(`${t.description ?? ''} ${Object.keys(t.inputSchema?.properties ?? {}).join(' ')}`),
+  );
+  checks.push(
+    openWorld.length
+      ? {
+          id: 'tools.open-world',
+          level: 'warn',
+          title: 'openWorldHint matches what the tool does',
+          detail: `${openWorld.map((t) => t.name).join(', ')}: openWorldHint is false, but the tool seems to send, post or publish`,
+          fix: 'OpenAI defines openWorldHint as true when a tool "can change publicly visible internet state or external third-party systems, such as sending emails or messages, posting/publishing content". If yours does, set it to true.',
+          stores: ['chatgpt'],
+        }
+      : { id: 'tools.open-world', level: 'pass', title: 'openWorldHint matches what the tool does' },
+  );
+
+  // Inputs that ask for data OpenAI treats as sensitive.
+  const sensitive = tools.flatMap((t) =>
+    Object.keys(t.inputSchema?.properties ?? {})
+      .filter((k) => /(ssn|social_security|passport|national_id|tax_id|credit_card|card_number|cvv|iban|password|mfa|otp|2fa|diagnos|medical|health_record|biometric|fingerprint)/i.test(k))
+      .map((k) => `${t.name}.${k}`),
+  );
+  if (sensitive.length) {
+    checks.push({ id: 'tools.sensitive-inputs', level: 'fail', title: 'Tools don’t ask for sensitive data', detail: sensitive.join(', '), fix: 'OpenAI flags inputs that request PHI, card data, SSNs, credentials, MFA codes, government IDs or biometrics unless strictly necessary. Remove them or justify them in the submission.', stores: ['chatgpt'] });
+  }
+
   const upsell = tools.filter((t) => UPSELL.test(`${t.title ?? ''} ${t.annotations?.title ?? ''} ${t.description ?? ''}`));
   checks.push(
     upsell.length
