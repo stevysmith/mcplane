@@ -5,8 +5,8 @@
  * the live server and mcplane.json against it.
  *
  * Every store calls your live server, so behaviour fixes reach users on their
- * own. What doesn't: tool definitions (ChatGPT only accepts deploys whose tools
- * match the published version), listing text, and plugins pinned to a commit.
+ * own. What doesn't: listing text, tool names in Claude's listing, hint
+ * justifications, registry versions and plugins pinned to a commit.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -176,14 +176,19 @@ export async function drift(m: Manifest, stores: StoreId[], opts: { token?: stri
     const since = `since ${snap.state === 'live' ? 'the live version' : 'your submission'}${snap.version ? ` (v${snap.version})` : ''} on ${snap.takenOn}`;
 
     if (store === 'chatgpt') {
+      // OpenAI rescans published servers: removals apply at once, new and changed tools after automated checks.
+      // Listing text is part of the version and needs a new one.
+      const hintChanges = d.changed.filter((c) => c.fields.some((f) => f.includes('Hint')));
       if (toolChange)
         items.push({
           store,
-          level: 'action',
+          level: 'info',
           what: `Tools changed ${since}: ${summary}`,
-          todo: `ChatGPT only accepts deploys whose tools match the published definitions. Submit a new version: rescan tools, run "mcplane pack chatgpt" and upload the JSON, update tests and the demo video if tools were added or removed.${d.removed.length ? ' Until it’s approved, ChatGPT users calling a removed tool get an error.' : ''}`,
+          todo: `No resubmission needed for tools: OpenAI rescans your server, drops removed tools at once and switches new or changed ones over after they pass automated checks (the old definition stays live until then).${d.added.length || d.removed.length ? ' Update the test cases and demo video in your next version.' : ''}`,
         });
-      if (listingChange.length) items.push({ store, level: 'action', what: `Listing text changed (${listingChange.join(', ')})`, todo: 'Listing text is part of the version: include it in the next ChatGPT version.' });
+      if (hintChanges.length)
+        items.push({ store, level: 'action', what: `Hints changed: ${hintChanges.map((c) => c.tool).join(', ')}`, todo: 'Your published version’s justifications explain the old values. Put new ones in the next version ("mcplane pack chatgpt").' });
+      if (listingChange.length) items.push({ store, level: 'action', what: `Listing text changed (${listingChange.join(', ')})`, todo: 'Listing changes need a new version, review and publication: "mcplane pack chatgpt", import it into a new version, submit.' });
     }
     if (store === 'claude-connectors') {
       if (d.added.length || d.removed.length)
@@ -197,7 +202,7 @@ export async function drift(m: Manifest, stores: StoreId[], opts: { token?: stri
     }
     if (store === 'claude-plugins' || store === 'cursor') {
       if (head && snap.repoSha && head !== snap.repoSha)
-        items.push({ store, level: store === 'cursor' ? 'action' : 'info', what: `Plugin repo moved on ${since} (${snap.repoSha.slice(0, 7)} → ${head.slice(0, 7)})`, todo: store === 'cursor' ? 'Resubmit the update through cursor.com/marketplace/publish; every version is reviewed.' : 'Claude pins your plugin to a commit. Publish the update from claude.ai/directory/manage.' });
+        items.push({ store, level: store === 'cursor' ? 'action' : 'info', what: `Plugin repo moved on ${since} (${snap.repoSha.slice(0, 7)} → ${head.slice(0, 7)})`, todo: store === 'cursor' ? 'Cursor pins marketplace plugins to the commit that was current when they were added and doesn’t document updates. Resubmit at cursor.com/marketplace/publish, or ask Cursor to re-pin.' : 'The portal picks up commits on the branch it tracks (push webhook or scheduled check) and validates them; a reviewer publishes each version unless you have auto-publish. Check claude.ai/directory/manage.' });
     }
     if (store === 'grok' && head) {
       const pinned = await grokPin(m.name);

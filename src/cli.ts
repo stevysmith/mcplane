@@ -7,7 +7,7 @@ import { preflight } from './preflight.js';
 import { printPreflight } from './report.js';
 import { STORE_NAMES, type Manifest, type StoreId } from './types.js';
 import { recordDecision, recordSubmitted, status } from './submissions.js';
-import { chatgptPack, claudePack, simplePack, writePack } from './packs.js';
+import { chatgptPack, claudePack, directoriesPack, simplePack, writePack } from './packs.js';
 import { drift, printDrift, takeSnapshot } from './drift.js';
 import { publish } from './publish.js';
 import { lanes, pull, runLane, tryLinks } from './extras.js';
@@ -29,7 +29,7 @@ Usage
       --private                       Keep it local; don't log to Review Times
   mcplane decided <store> approved|rejected|withdrawn [--date YYYY-MM-DD]
   mcplane status                      Every submission, how long it's waited, and the store's typical wait
-  mcplane pack <store>                Write a submission pack to .mcplane/packs (chatgpt, claude-connectors, cursor, muse)
+  mcplane pack <store>                Write a submission pack to .mcplane/packs (chatgpt, claude-connectors, cursor, muse, directories)
   mcplane drift [--store <id>]...     What changed since each store saw your server, and what each needs
       --ci                            Exit 1 when a store needs a new version or an edit
   mcplane baseline <store> [--version x.y.z]   Record a listing that's already live as the drift baseline
@@ -139,9 +139,9 @@ async function main() {
 
   if (cmd === 'pack') {
     const m = await loadManifest();
-    const store = asStore(positionals[0]);
+    const store = positionals[0] === 'directories' ? null : asStore(positionals[0]);
     const token = values.token ?? process.env.MCPLANE_TOKEN;
-    const pack = store === 'chatgpt' ? await chatgptPack(m, token) : store === 'claude-connectors' ? await claudePack(m, token) : await simplePack(m, store);
+    const pack = !store ? directoriesPack(m) : store === 'chatgpt' ? await chatgptPack(m, token) : store === 'claude-connectors' ? await claudePack(m, token) : await simplePack(m, store);
     const written = await writePack(pack);
     console.log(`Wrote ${written.join(', ')}`);
     if (pack.problems.length) {

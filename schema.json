@@ -4,52 +4,143 @@
   "title": "mcplane.json",
   "description": "One description of an MCP server and its listings, used by mcplane to check, pack, publish and track store submissions.",
   "type": "object",
-  "required": ["name", "title", "server"],
+  "required": [
+    "name",
+    "title",
+    "server"
+  ],
   "additionalProperties": false,
   "$defs": {
     "store": {
-      "enum": ["mcp-registry", "chatgpt", "claude-connectors", "claude-plugins", "cursor", "grok", "docker", "muse", "smithery", "awesome-mcp-servers"]
+      "enum": [
+        "mcp-registry",
+        "chatgpt",
+        "claude-connectors",
+        "claude-plugins",
+        "cursor",
+        "grok",
+        "docker",
+        "muse",
+        "smithery",
+        "glama",
+        "cline",
+        "lobehub",
+        "awesome-mcp-servers"
+      ]
     },
-    "url": { "type": "string", "format": "uri" }
+    "url": {
+      "type": "string",
+      "format": "uri"
+    }
   },
   "properties": {
-    "$schema": { "type": "string" },
-    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "description": "Short machine name, lowercase with hyphens. Used for plugin entries and install links." },
-    "title": { "type": "string", "description": "Display name in every store." },
-    "subtitle": { "type": "string", "maxLength": 30, "description": "ChatGPT's subtitle (30 characters)." },
-    "oneLiner": { "type": "string", "description": "One sentence: what it does. Claude's one-liner, the registry and plugin descriptions start from it." },
-    "description": { "type": "string", "description": "The long description." },
-    "category": { "type": "string", "description": "ChatGPT category, e.g. DEVELOPER_TOOLS, PRODUCTIVITY, BUSINESS." },
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Short machine name, lowercase with hyphens. Used for plugin entries and install links."
+    },
+    "title": {
+      "type": "string",
+      "description": "Display name in every store."
+    },
+    "subtitle": {
+      "type": "string",
+      "maxLength": 30,
+      "description": "ChatGPT's subtitle (30 characters)."
+    },
+    "oneLiner": {
+      "type": "string",
+      "description": "One sentence: what it does. Claude's one-liner, the registry and plugin descriptions start from it."
+    },
+    "description": {
+      "type": "string",
+      "description": "The long description."
+    },
+    "category": {
+      "type": "string",
+      "description": "ChatGPT category, e.g. DEVELOPER_TOOLS, PRODUCTIVITY, BUSINESS."
+    },
     "server": {
       "type": "object",
-      "required": ["url"],
+      "required": [
+        "url"
+      ],
       "additionalProperties": false,
       "properties": {
-        "url": { "$ref": "#/$defs/url", "description": "Your streamable HTTP endpoint, exactly as reviewers will add it." },
-        "auth": { "enum": ["none", "oauth"] }
+        "url": {
+          "$ref": "#/$defs/url",
+          "description": "Your streamable HTTP endpoint, exactly as reviewers will add it."
+        },
+        "auth": {
+          "enum": [
+            "none",
+            "oauth"
+          ]
+        }
       }
     },
-    "repository": { "$ref": "#/$defs/url", "description": "Public GitHub repository for plugin stores (Claude plugins, Cursor, Grok)." },
+    "repository": {
+      "$ref": "#/$defs/url",
+      "description": "Public GitHub repository for plugin stores (Claude plugins, Cursor, Grok)."
+    },
     "author": {
       "type": "object",
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": false,
-      "properties": { "name": { "type": "string" }, "url": { "$ref": "#/$defs/url" } }
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "url": {
+          "$ref": "#/$defs/url"
+        }
+      }
     },
     "links": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "website": { "$ref": "#/$defs/url" },
-        "support": { "$ref": "#/$defs/url" },
-        "privacy": { "$ref": "#/$defs/url" },
-        "terms": { "$ref": "#/$defs/url" },
-        "docs": { "$ref": "#/$defs/url" }
+        "website": {
+          "$ref": "#/$defs/url"
+        },
+        "support": {
+          "$ref": "#/$defs/url"
+        },
+        "privacy": {
+          "$ref": "#/$defs/url"
+        },
+        "terms": {
+          "$ref": "#/$defs/url"
+        },
+        "docs": {
+          "$ref": "#/$defs/url"
+        }
       }
     },
-    "icon": { "$ref": "#/$defs/url", "description": "A direct link to a square PNG, 512px or larger. Not a page, not a favicon." },
-    "prompts": { "type": "array", "items": { "type": "string" }, "description": "Example prompts shown on listings." },
-    "stores": { "type": "array", "items": { "$ref": "#/$defs/store" }, "uniqueItems": true, "description": "Where you list. Leave out to check against every store." },
+    "icon": {
+      "$ref": "#/$defs/url",
+      "description": "A direct link to a square PNG, 512px or larger. Not a page, not a favicon."
+    },
+    "prompts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Example prompts shown on listings."
+    },
+    "stores": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/store"
+      },
+      "uniqueItems": true,
+      "description": "Where you list. Leave out to check against every store."
+    },
     "tests": {
       "type": "object",
       "description": "Review test cases. ChatGPT wants exactly 5 positive and 3 negative.",
@@ -59,13 +150,29 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["scenario", "prompt", "tools", "expected"],
+            "required": [
+              "scenario",
+              "prompt",
+              "tools",
+              "expected"
+            ],
             "additionalProperties": false,
             "properties": {
-              "scenario": { "type": "string" },
-              "prompt": { "type": "string" },
-              "tools": { "type": "array", "items": { "type": "string" } },
-              "expected": { "type": "string" }
+              "scenario": {
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "expected": {
+                "type": "string"
+              }
             }
           }
         },
@@ -73,9 +180,19 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["scenario", "prompt"],
+            "required": [
+              "scenario",
+              "prompt"
+            ],
             "additionalProperties": false,
-            "properties": { "scenario": { "type": "string" }, "prompt": { "type": "string" } }
+            "properties": {
+              "scenario": {
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              }
+            }
           }
         }
       }
@@ -87,37 +204,80 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "readOnly": { "type": "string", "maxLength": 200 },
-          "openWorld": { "type": "string", "maxLength": 200 },
-          "destructive": { "type": "string", "maxLength": 200 }
+          "readOnly": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "openWorld": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "destructive": {
+            "type": "string",
+            "maxLength": 200
+          }
         }
       }
     },
-    "version": { "type": "string", "description": "Your server's version, for the MCP Registry and your records." },
+    "version": {
+      "type": "string",
+      "description": "Your server's version, for the MCP Registry and your records."
+    },
     "registry": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string", "description": "Reverse-DNS name. Defaults to io.github.<owner>/<name>." },
-        "description": { "type": "string", "maxLength": 100 },
-        "file": { "type": "string", "description": "Where to write server.json." }
+        "name": {
+          "type": "string",
+          "description": "Reverse-DNS name. Defaults to io.github.<owner>/<name>."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "file": {
+          "type": "string",
+          "description": "Where to write server.json."
+        }
       }
     },
     "grok": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "description": { "type": "string" },
-        "category": { "type": "string" },
-        "keywords": { "type": "array", "items": { "type": "string" } },
-        "domains": { "type": "array", "items": { "type": "string" } }
+        "description": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "lanes": {
       "type": "object",
       "description": "Named workflows run with \"mcplane <lane>\". Each step is a command without \"mcplane\"; prefix \"?\" for optional, \"handoff:\" for a step only a person can do.",
-      "additionalProperties": { "type": "array", "items": { "type": "string" } }
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
     },
-    "reviewerAccess": { "type": "string", "description": "How reviewers get in, for servers behind sign-in. Say where credentials live; never put a password here." }
+    "reviewerAccess": {
+      "type": "string",
+      "description": "How reviewers get in, for servers behind sign-in. Say where credentials live; never put a password here."
+    }
   }
 }

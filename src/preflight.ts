@@ -15,15 +15,17 @@ export interface PreflightResult {
 function reminders(m: Manifest, stores: StoreId[]): string[] {
   const r: string[] = [];
   if (m.server.auth === 'oauth') {
-    r.push('Give reviewers a demo account: email and password, no 2FA, seeded with data that matches every test case. Re-check the seed right before submitting.');
+    r.push('Give reviewers a demo account: email and password, no 2FA, SMS or email confirmation, seeded with data that matches every test case. Re-check the seed right before submitting.');
     r.push('Sign in through your OAuth flow once as a brand-new user. A blank post-sign-in redirect stranded a ChatGPT reviewer between registration and consent.');
   }
   if (stores.includes('chatgpt')) {
     r.push('ChatGPT needs a demo video recorded in developer mode that shows the tools your test cases use. Re-record it whenever tools change.');
     r.push('After "Submit for Review" the ChatGPT portal shows nothing for about 20 seconds. Confirm the status on the plugins list, not the button.');
     r.push('Tool-annotation justifications are cut at 200 characters without warning.');
+    r.push('ChatGPT allows one version in review at a time. To change a submission, Cancel Review and resubmit the same draft.');
   }
   if (stores.includes('claude-connectors') || stores.includes('claude-plugins')) {
+    if (stores.includes('claude-plugins')) r.push('Run "claude plugin validate --strict" in the plugin repo; the portal validates every commit on the branch it tracks.');
     r.push('Claude: "Passed review" is not the same as listed. Check claude.ai/directory for your listing after approval; with the new portal you choose when to publish.');
   }
   return r;

@@ -95,7 +95,19 @@ export async function listingChecks(m: Manifest, tools: Tool[], stores: StoreId[
     if (v && v.length > max) checks.push({ id, level: 'fail', title: `${label} fits (${max} characters)`, detail: `${v.length} characters`, stores: s });
     else if (v) checks.push({ id, level: 'pass', title: `${label} fits (${max} characters)`, stores: s });
   };
-  if (has(stores, 'chatgpt')) len(m.subtitle, 30, 'listing.subtitle', 'Subtitle', ['chatgpt']);
+  if (has(stores, 'chatgpt')) {
+    len(m.title, 30, 'listing.name', 'Display name', ['chatgpt']);
+    len(m.subtitle, 30, 'listing.subtitle', 'Subtitle', ['chatgpt']);
+    const prompts = m.prompts ?? [];
+    const bad = prompts.filter((p) => p.length > 128 || /(^|\s)@\w/.test(p));
+    const dupes = prompts.filter((p, i) => prompts.findIndex((q) => q.trim().toLowerCase() === p.trim().toLowerCase()) !== i);
+    if (bad.length || dupes.length) {
+      checks.push({ id: 'listing.prompts', level: 'fail', title: 'Starter prompts are short, unique and free of @mentions', detail: [...bad.map((p) => `"${p.slice(0, 40)}…"`), ...dupes.map((p) => `duplicate: "${p.slice(0, 40)}"`)].join('; '), fix: 'ChatGPT rejects starter prompts over 128 characters, with @mentions, or repeated.', stores: ['chatgpt'] });
+    } else if (prompts.length) {
+      checks.push({ id: 'listing.prompts', level: 'pass', title: 'Starter prompts are short, unique and free of @mentions', stores: ['chatgpt'] });
+    }
+  }
+  if (has(stores, 'claude-connectors', 'claude-plugins')) len(m.title, 100, 'listing.claude-name', 'Name for Claude', ['claude-connectors', 'claude-plugins']);
   if (has(stores, 'claude-connectors', 'claude-plugins')) len(m.oneLiner, 200, 'listing.one-liner', 'One-liner', ['claude-connectors', 'claude-plugins']);
   len(m.description, 2000, 'listing.description', 'Description', []);
 

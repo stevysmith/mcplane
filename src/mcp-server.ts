@@ -13,7 +13,7 @@ import { drift } from './drift.js';
 import { fleet } from './fleet.js';
 import { pull, tryLinks } from './extras.js';
 import { MANIFEST_FILE, draftManifest, loadManifest, storesOf } from './manifest.js';
-import { chatgptPack, claudePack, simplePack, writePack } from './packs.js';
+import { chatgptPack, claudePack, directoriesPack, simplePack, writePack } from './packs.js';
 import { preflight } from './preflight.js';
 import { publish } from './publish.js';
 import { recordDecision, recordSubmitted, status } from './submissions.js';
@@ -39,7 +39,7 @@ export async function serve(): Promise<void> {
       description:
         'Checks a live MCP server, its listing links, icon and plugin repo against the known rejection causes of ChatGPT, Claude, Cursor, Grok, Muse and the MCP Registry. Returns each check with pass, warn, fail or skip, what was found and how to fix it, plus reminders that no script can verify. Uses mcplane.json, or a url for a server without one.',
       inputSchema: { project: PROJECT, url: z.string().url().optional(), stores: z.array(STORE).optional() },
-      annotations: { title: 'Preflight', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { title: 'Preflight', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ project, url, stores }) => {
       const m = url ? await draftManifest(url) : await loadManifest(dirOf(project));
@@ -56,7 +56,7 @@ export async function serve(): Promise<void> {
       description:
         'Compares the live server and mcplane.json with the snapshot saved when each submission was recorded, and lists what each store needs: a new ChatGPT version, a Claude listing edit, a plugin pin bump. Stores without a snapshot are listed as missing.',
       inputSchema: { project: PROJECT, stores: z.array(STORE).optional() },
-      annotations: { title: 'Drift', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { title: 'Drift', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ project, stores }) => {
       const m = await loadManifest(dirOf(project));
@@ -70,13 +70,13 @@ export async function serve(): Promise<void> {
     {
       title: 'Write a submission pack',
       description:
-        'Writes everything a store’s submission form asks for into .mcplane/packs: chatgpt-app-submission.json for ChatGPT’s import, markdown packs for claude-connectors, cursor and muse. Returns the files written and any problems to fix first.',
-      inputSchema: { project: PROJECT, store: z.enum(['chatgpt', 'claude-connectors', 'cursor', 'muse']) },
-      annotations: { title: 'Pack', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        'Writes everything a store’s submission form asks for into .mcplane/packs: chatgpt-app-submission.json for ChatGPT’s import, markdown packs for claude-connectors, cursor and muse, and one sheet for the form-only directories. Returns the files written and any problems to fix first.',
+      inputSchema: { project: PROJECT, store: z.enum(['chatgpt', 'claude-connectors', 'cursor', 'muse', 'directories']) },
+      annotations: { title: 'Pack', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ project, store }) => {
       const m = await loadManifest(dirOf(project));
-      const pack = store === 'chatgpt' ? await chatgptPack(m, token()) : store === 'claude-connectors' ? await claudePack(m, token()) : await simplePack(m, store);
+      const pack = store === 'directories' ? directoriesPack(m) : store === 'chatgpt' ? await chatgptPack(m, token()) : store === 'claude-connectors' ? await claudePack(m, token()) : await simplePack(m, store);
       const files = await writePack(pack, dirOf(project));
       return reply({ files, problems: pack.problems, todo: pack.todo });
     },
@@ -87,9 +87,9 @@ export async function serve(): Promise<void> {
     {
       title: 'Publish to a store that allows automation',
       description:
-        'mcp-registry: writes server.json and runs mcp-publisher. grok: opens a pull request to xai-org/plugin-marketplace (new listing or pin bump), validated with xAI’s scripts. Other stores return the prepared entry or command. With confirm false it returns what it would do and changes nothing.',
+        'mcp-registry: writes server.json and runs mcp-publisher (a published registry version can’t be changed afterwards). grok: opens a pull request to xai-org/plugin-marketplace (new listing or pin bump), validated with xAI’s scripts. Other stores return the prepared entry or command. With confirm false it returns what it would do and changes nothing.',
       inputSchema: { project: PROJECT, store: STORE, confirm: z.boolean().default(false) },
-      annotations: { title: 'Publish', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: { title: 'Publish', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
     async ({ project, store, confirm }) => {
       const m = await loadManifest(dirOf(project));
@@ -142,7 +142,7 @@ export async function serve(): Promise<void> {
       title: 'Your submissions and how long they’ve waited',
       description: 'Every recorded submission with days waited, refreshed from Review Times (which closes reports itself when a listing appears), and each store’s typical wait right now.',
       inputSchema: { project: PROJECT },
-      annotations: { title: 'Status', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { title: 'Status', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ project }) => reply({ submissions: await status(dirOf(project)) }),
   );
@@ -164,7 +164,7 @@ export async function serve(): Promise<void> {
       title: 'Compare live listings with mcplane.json',
       description: 'Reads the store listings that have an open feed (Claude directory, Cursor marketplace) and returns fields that differ from mcplane.json.',
       inputSchema: { project: PROJECT },
-      annotations: { title: 'Pull', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { title: 'Pull', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ project }) => reply({ listings: await pull(await loadManifest(dirOf(project))) }),
   );
@@ -175,7 +175,7 @@ export async function serve(): Promise<void> {
       title: 'Create mcplane.json',
       description: 'Writes a starting mcplane.json from what the live server and its domain reveal (name, auth, privacy, support, terms and icon URLs). Refuses to overwrite an existing file.',
       inputSchema: { project: PROJECT, url: z.string().url() },
-      annotations: { title: 'Init', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { title: 'Init', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ project, url }) => {
       const file = join(dirOf(project), MANIFEST_FILE);
@@ -193,7 +193,7 @@ export async function serve(): Promise<void> {
       description:
         'Finds every mcplane.json under a folder (three levels down) and returns, per project: blocking preflight checks, store updates needed since the last submission, reviews waiting and stores it is live on. quick true skips the live checks.',
       inputSchema: { root: z.string().optional().describe('Folder to search. Defaults to where mcplane was started.'), quick: z.boolean().default(false) },
-      annotations: { title: 'Fleet', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { title: 'Fleet', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ root, quick }) => {
       const rows = await fleet(dirOf(root), { checks: !quick, token: token() });

@@ -63,23 +63,52 @@ export function serverJson(m: Manifest) {
   };
 }
 
+/** Versions of this server already in the registry. Published versions can't change. */
+async function registryVersions(name: string): Promise<string[]> {
+  const r = await fetch(`https://registry.modelcontextprotocol.io/v0/servers?search=${encodeURIComponent(name)}`, { headers: { 'user-agent': 'mcplane' } }).catch(() => null);
+  const data = r?.ok ? ((await r.json().catch(() => null)) as { servers?: { server: { name: string; version: string } }[] } | null) : null;
+  return (data?.servers ?? []).filter((x) => x.server.name === name).map((x) => x.server.version);
+}
+
+/** 1.2.0 → 1.2.0-1, 1.2.0-1 → 1.2.0-2: the registry's way to change metadata without a new release. */
+const nextPrerelease = (v: string) => (/-(\d+)$/.test(v) ? v.replace(/-(\d+)$/, (_, n) => `-${Number(n) + 1}`) : `${v}-1`);
+
+const REGISTRY_READERS = 'GitHub’s MCP Registry (and VS Code), PulseMCP and MCP.Directory read from the official registry, so they pick this up on their own.';
+
 async function publishRegistry(m: Manifest, yes: boolean, dir: string): Promise<PublishResult> {
   const json = serverJson(m);
   const file = m.registry?.file ?? 'server.json';
   const lines: string[] = [];
+  const existing = await registryVersions(json.name);
+  if (existing.includes(json.version)) {
+    return {
+      store: 'mcp-registry',
+      done: false,
+      lines: [`${json.name} v${json.version} is already in the registry, and published versions can't change. Bump "version" in mcplane.json, or for a listing-only change use a prerelease such as ${nextPrerelease(json.version)}.`],
+    };
+  }
   const long = (m.registry?.description ?? m.oneLiner ?? '').length > 100;
   if (long) lines.push('Description trimmed to 100 characters, the registry’s limit. Set registry.description in mcplane.json to choose the words.');
   const ns = json.name.split('/')[0];
   const auth = ns.startsWith('io.github.') ? `mcp-publisher login github` : `mcp-publisher login dns --domain ${ns.split('.').reverse().join('.')} --private-key <key>  (after adding the TXT record it prints)`;
   if (!yes) {
-    return { store: 'mcp-registry', done: false, lines: [...lines, `Would write ${file}:`, JSON.stringify(json, null, 2), '', 'Then: mcp-publisher validate && mcp-publisher publish', `Log in first if needed: ${auth}`, 'Run again with --yes to do it.'] };
+    return { store: 'mcp-registry', done: false, lines: [...lines, `Would write ${file}:`, JSON.stringify(json, null, 2), '', 'Then: mcp-publisher validate && mcp-publisher publish', `Log in first if needed: ${auth}`, existing.length ? `Already published: ${existing.join(', ')}.` : 'First version of this name.', REGISTRY_READERS, 'Run again with --yes to do it.'] };
   }
   writeFileSync(resolve(dir, file), JSON.stringify(json, null, 2) + '\n');
   if (!has('mcp-publisher')) return { store: 'mcp-registry', done: false, lines: [...lines, `Wrote ${file}. Install mcp-publisher (brew install mcp-publisher), then: ${auth} && mcp-publisher publish`] };
+  // In GitHub Actions, sign in without secrets (io.github.* names need "permissions: id-token: write"); DNS names use MCP_PRIVATE_KEY.
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    try {
+      if (ns.startsWith('io.github.') && process.env.ACTIONS_ID_TOKEN_REQUEST_URL) run('mcp-publisher', ['login', 'github-oidc'], dir);
+      else if (!ns.startsWith('io.github.') && process.env.MCP_PRIVATE_KEY) run('mcp-publisher', ['login', 'dns', '--domain', ns.split('.').reverse().join('.'), '--private-key', process.env.MCP_PRIVATE_KEY], dir);
+    } catch (e) {
+      return { store: 'mcp-registry', done: false, lines: [...lines, 'Signing in to the registry from CI failed:', String((e as { stderr?: string }).stderr ?? (e as Error).message).trim()] };
+    }
+  }
   try {
     run('mcp-publisher', ['validate', file], dir);
     const out = run('mcp-publisher', ['publish', file], dir);
-    return { store: 'mcp-registry', done: true, lines: [...lines, `Wrote ${file} and published ${json.name} v${json.version}.`, out], url: `https://registry.modelcontextprotocol.io/v0/servers?search=${encodeURIComponent(json.name)}` };
+    return { store: 'mcp-registry', done: true, lines: [...lines, `Wrote ${file} and published ${json.name} v${json.version}.`, out, REGISTRY_READERS], url: `https://registry.modelcontextprotocol.io/v0/servers?search=${encodeURIComponent(json.name)}` };
   } catch (e) {
     const err = String((e as { stderr?: string }).stderr ?? (e as Error).message);
     return { store: 'mcp-registry', done: false, lines: [...lines, `Wrote ${file}, but publishing failed:`, err.trim(), /auth|login|token|401|403/i.test(err) ? `Log in: ${auth}` : ''] };
@@ -188,18 +217,53 @@ function prepared(m: Manifest, store: StoreId): PublishResult {
       lines: [
         'Add this line to the right category in punkpeye/awesome-mcp-servers README.md (☁️ marks a hosted server), then open a pull request:',
         `- ${link} ☁️ - ${desc}`,
-        'Keep categories alphabetical and follow their legend; PRs that don’t are the ones that wait.',
+        'Keep categories alphabetical, follow their legend and include your Glama score badge ("mcplane publish glama"); PRs without it are the ones that wait.',
       ],
     };
   }
   if (store === 'smithery') {
-    return { store, done: false, lines: [`Publish at https://smithery.ai/new with your server URL: ${m.server.url}`, 'Smithery also has a CLI ("smithery mcp publish") if you prefer the terminal.'] };
+    return { store, done: false, lines: [`smithery mcp publish ${m.server.url} -n @<your-org>/${m.name}`, 'Or at https://smithery.ai/new. If Smithery’s scan can’t get past your sign-in, serve /.well-known/mcp/server-card.json describing your tools.'] };
+  }
+  if (store === 'glama') {
+    const owner = gh?.owner ?? '<your-github-user>';
+    return {
+      store,
+      done: false,
+      lines: [
+        `Add ${gh ? `https://github.com/${gh.owner}/${gh.repo}` : 'your GitHub repo'} at https://glama.ai/mcp/servers ("Add MCP Server"). Glama runs its own checks (license, security, health) and scores the server.`,
+        'To claim the listing, commit glama.json at the repo root:',
+        JSON.stringify({ $schema: 'https://glama.ai/mcp/schemas/server.json', maintainers: [owner] }, null, 2),
+        'awesome-mcp-servers asks for the Glama score badge on each entry, so do this first.',
+      ],
+    };
+  }
+  if (store === 'cline') {
+    if (!gh) return { store, done: false, lines: ['Cline’s marketplace lists GitHub repositories. Set "repository" in mcplane.json.'] };
+    const q = new URLSearchParams({ template: 'mcp-server-submission.yml', title: `Add ${m.title}`, 'repo-url': `https://github.com/${gh.owner}/${gh.repo}`, 'additional-info': `${desc}\n\nRemote server: ${m.server.url}` });
+    return {
+      store,
+      done: false,
+      lines: [
+        `Open the prefilled issue: https://github.com/cline/mcp-marketplace/issues/new?${q}`,
+        'Attach a 400×400 PNG logo, and tick the testing boxes only after Cline has set the server up from your README (or llms-install.md) alone. Review takes a couple of days.',
+      ],
+    };
+  }
+  if (store === 'lobehub') {
+    return {
+      store,
+      done: false,
+      lines: [
+        `npx @lobehub/market-cli plugin publish ${gh ? `https://github.com/${gh.owner}/${gh.repo}` : '<your GitHub repo>'}`,
+        'It signs in through your browser, so it can’t run in CI. Re-run "plugin update" after changes; a new version number creates a new release.',
+      ],
+    };
   }
   if (store === 'docker') {
     return {
       store,
       done: false,
-      lines: ['Docker’s catalog takes a pull request to docker/mcp-registry adding servers/<name>/server.yaml. Follow its CONTRIBUTING guide; mcplane has your name, description and links ready in mcplane.json.'],
+      lines: ['In a fork of docker/mcp-registry run "task remote-wizard" (remote servers) or "task wizard" (images) and open the pull request it prepares. Entries pin a commit, so each update is a new PR. Live within 24 hours of approval.'],
     };
   }
   return { store, done: false, lines: [`${store} is submitted through a form. Run "mcplane pack ${store}" for everything it asks.`] };
@@ -211,4 +275,4 @@ export async function publish(m: Manifest, store: StoreId, opts: { yes?: boolean
   return prepared(m, store);
 }
 
-export const _test = { editMarketplace, grokEntry };
+export const _test = { editMarketplace, grokEntry, nextPrerelease };

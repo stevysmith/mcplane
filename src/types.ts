@@ -22,6 +22,9 @@ export type StoreId =
   | 'docker'
   | 'muse'
   | 'smithery'
+  | 'glama'
+  | 'cline'
+  | 'lobehub'
   | 'awesome-mcp-servers';
 
 export const STORE_NAMES: Record<StoreId, string> = {
@@ -34,6 +37,9 @@ export const STORE_NAMES: Record<StoreId, string> = {
   docker: 'Docker MCP Catalog',
   muse: 'Muse connectors',
   smithery: 'Smithery',
+  glama: 'Glama',
+  cline: 'Cline MCP Marketplace',
+  lobehub: 'LobeHub Market',
   'awesome-mcp-servers': 'awesome-mcp-servers',
 };
 

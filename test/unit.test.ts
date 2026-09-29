@@ -100,3 +100,25 @@ test('loadManifest explains what is missing', async () => {
   await writeFile(join(dir, 'mcplane.json'), JSON.stringify({ name: 'x', stores: ['chatgpt', 'appstore'] }));
   await assert.rejects(loadManifest(dir), /"title" is required.*"server.url" is required.*unknown store "appstore"/);
 });
+
+test('toolChecks follows OpenAI’s current hint definitions', () => {
+  const tools: Tool[] = [
+    { name: 'notify', title: 'Notify', description: 'Sends a message to a Slack channel.', annotations: hints(false, true, false), outputSchema: {} },
+    { name: 'search', title: 'Search', description: 'Web search across the public internet.', annotations: hints(true, false), outputSchema: {} },
+  ];
+  const by = Object.fromEntries(toolChecks(tools).map((c) => [c.id, c]));
+  assert.match(by['tools.destructive-send'].detail!, /notify/);
+  assert.match(by['tools.open-world'].detail!, /search/);
+});
+
+test('toolChecks flags catch-all request tools and long names', () => {
+  const tools: Tool[] = [{ name: 'x'.repeat(65), title: 'Req', description: 'Calls the API.', inputSchema: { properties: { method: {}, path: {} } }, annotations: hints(false, false), outputSchema: {} }];
+  const by = Object.fromEntries(toolChecks(tools).map((c) => [c.id, c.level]));
+  assert.equal(by['tools.catch-all'], 'warn');
+  assert.equal(by['tools.name-length'], 'fail');
+});
+
+test('registry prereleases for listing-only changes', () => {
+  assert.equal(pub.nextPrerelease('1.2.0'), '1.2.0-1');
+  assert.equal(pub.nextPrerelease('1.2.0-1'), '1.2.0-2');
+});

@@ -92,11 +92,12 @@ export function toolChecks(tools: Tool[]): Check[] {
       : { id: 'tools.bearer-writes', level: 'pass', title: 'Writes are bound to an owner, not a token in the chat' },
   );
 
-  // OpenAI's reviewers read openWorldHint as "can change public or third-party state": sending email, posting, publishing.
+  // OpenAI: openWorldHint is true for tools that reach the public internet or open-ended external entities,
+  // read-only ones like web search included, and for writes that post, send, publish, push or submit.
   const openWorld = tools.filter(
     (t) =>
       t.annotations?.openWorldHint === false &&
-      /\b(send|sends|email|emails|post|posts|publish|publishes|public|tweet|message|notify|notifies)\b/i.test(`${t.description ?? ''} ${Object.keys(t.inputSchema?.properties ?? {}).join(' ')}`),
+      /\b(send|sends|sent|e-?mail(s|ed)?|post|posts|publish|publishes|public|tweet|message|notify|notifies|web search|search the web|internet|any url|fetch(es)? (a |the |any )?url|scrape|scrapes|crawl|crawls)\b/i.test(`${t.description ?? ''} ${Object.keys(t.inputSchema?.properties ?? {}).join(' ')}`),
   );
   checks.push(
     openWorld.length
@@ -105,11 +106,36 @@ export function toolChecks(tools: Tool[]): Check[] {
           level: 'warn',
           title: 'openWorldHint matches what the tool does',
           detail: `${openWorld.map((t) => t.name).join(', ')}: openWorldHint is false, but the tool seems to send, post or publish`,
-          fix: 'OpenAI defines openWorldHint as true when a tool "can change publicly visible internet state or external third-party systems, such as sending emails or messages, posting/publishing content". If yours does, set it to true.',
+          fix: 'OpenAI: set openWorldHint to true "if the tool accesses the public internet or open-ended external entities", including read-only tools such as web search and tools that post, send messages to external recipients, publish, push code or submit forms. False only when it is limited to a bounded private account or workspace.',
           stores: ['chatgpt'],
         }
       : { id: 'tools.open-world', level: 'pass', title: 'openWorldHint matches what the tool does' },
   );
+
+  // OpenAI: destructiveHint is true for irreversible outcomes, "sending messages or transactions you can't undo" included.
+  const sends = tools.filter((t) => t.annotations?.destructiveHint === false && t.annotations?.readOnlyHint !== true && /\b(sends?|sent|e-?mail(s|ed)?|sms|texts?|messag(es?|ed)|notif(y|ies|ied)|transfers?|pays?|payments?)\b/i.test(t.description ?? ''));
+  if (sends.length) {
+    checks.push({
+      id: 'tools.destructive-send',
+      level: 'warn',
+      title: 'destructiveHint covers messages that can’t be unsent',
+      detail: `${sends.map((t) => t.name).join(', ')}: destructiveHint is false, but the tool seems to send something`,
+      fix: 'OpenAI sets destructiveHint to true for tools that can cause irreversible outcomes, "sending messages or transactions you can\'t undo" included, even through default parameters. If a user can\'t take it back, set it to true and say in the justification what safeguards exist (confirmation, scoping).',
+      stores: ['chatgpt'],
+    });
+  }
+
+  const long = tools.filter((t) => t.name.length > 64);
+  if (long.length) checks.push({ id: 'tools.name-length', level: 'fail', title: 'Tool names are 64 characters or fewer', detail: long.map((t) => t.name).join(', '), fix: 'Anthropic’s review criteria cap tool names at 64 characters.', stores: ['claude-connectors', 'claude-plugins'] });
+
+  // A tool that takes an HTTP method and a path is one tool doing both reads and writes.
+  const catchAll = tools.filter((t) => {
+    const keys = Object.keys(t.inputSchema?.properties ?? {}).map((k) => k.toLowerCase());
+    return keys.some((k) => k === 'method' || k === 'http_method' || k === 'verb') && keys.some((k) => /^(path|endpoint|url|route)$/.test(k));
+  });
+  if (catchAll.length) {
+    checks.push({ id: 'tools.catch-all', level: 'warn', title: 'No catch-all request tool', detail: catchAll.map((t) => t.name).join(', '), fix: 'Anthropic rejects a single tool that makes any API call (e.g. api_request with a method parameter). Split it into read tools and write tools with honest hints.', stores: ['claude-connectors'] });
+  }
 
   // Inputs that ask for data OpenAI treats as sensitive.
   const sensitive = tools.flatMap((t) =>

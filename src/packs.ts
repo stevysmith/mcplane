@@ -238,6 +238,39 @@ export async function simplePack(m: Manifest, store: StoreId): Promise<Pack> {
   return { files: [{ path: `${store}.md`, content: md }], problems, todo: [] };
 }
 
+/** The long tail: directories that only take a web form. One sheet with every value to paste. */
+export function directoriesPack(m: Manifest): Pack {
+  const repo = m.repository?.replace(/\.git$/, '');
+  const desc = m.oneLiner ?? m.description ?? m.title;
+  const rows: [string, string, string][] = [
+    ['MCP.Directory', 'https://mcp.directory/submit', 'Reads the official registry; claim the listing there, or submit a GitHub URL (reviewed within a day).'],
+    ['mcp.so', 'https://mcp.so/submit', 'Repo URL and name. Paid option skips review. No update mechanism: edit by hand.'],
+    ['MCP Market', 'https://mcpmarket.com/submit', 'GitHub URL, email, type. The free queue runs to weeks; paid lists within a day.'],
+    ['mcpservers.org', 'https://mcpservers.org/submit', 'Has a field for your Official MCP Registry name. Free takes about two weeks.'],
+    ['cursor.directory', 'https://cursor.directory', 'Submit from its MCP section.'],
+  ];
+  const md = `# Directory forms: ${m.title}
+
+Publish to the official MCP Registry first ("mcplane publish mcp-registry"): GitHub's registry, VS Code, PulseMCP and MCP.Directory read from it, so most of these become optional.
+
+Values to paste:
+- Name: ${m.title}
+- Description: ${desc}
+- Server URL: ${m.server.url}
+- Repository: ${repo ?? 'none'}
+- Website: ${m.links?.website ?? ''}
+- Icon: ${m.icon ?? ''}
+- Registry name: ${m.registry?.name ?? '(see "mcplane publish mcp-registry")'}
+
+| Directory | Where | Notes |
+|---|---|---|
+${rows.map((r) => `| ${r[0]} | ${r[1]} | ${r[2]} |`).join('\n')}
+
+Directories send little traffic on their own; the registry, the big stores and your own docs matter more. Do these once, and don't pay to skip a queue unless a launch date depends on it.
+`;
+  return { files: [{ path: 'directories.md', content: md }], problems: [], todo: [] };
+}
+
 export async function writePack(pack: Pack, dir = process.cwd()): Promise<string[]> {
   await ensureLocalDir(dir);
   const out = resolve(dir, '.mcplane/packs');

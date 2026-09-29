@@ -29,6 +29,8 @@ An MCP server now has a dozen places to be listed: ChatGPT, Claude, Cursor, Grok
 
 iOS had the same problem in 2014. fastlane fixed it by putting your metadata in the repo, checking it before Apple could reject it, and turning every release into one command. mcplane does that for agent-era stores.
 
+An agent with a browser could fill in a form. It can't tell you that your DNS will make ChatGPT's reviewer time out, that a hint needs a justification you haven't written, or which of your seventeen listings went stale on Tuesday. That's the part mcplane does.
+
 ## Use it from your agent
 
 mcplane is itself an MCP server, so the agent in your repo can do the work:
@@ -65,15 +67,17 @@ npx mcplane fleet --root ~/Projects
 
 | Store | How mcplane gets you there | Keeping it current |
 |---|---|---|
-| Official MCP Registry | **Publishes**: writes `server.json`, runs `mcp-publisher` | Bump `version`, publish again |
+| Official MCP Registry | **Publishes**: writes `server.json`, runs `mcp-publisher`, signs in with GitHub OIDC in Actions. GitHub's MCP Registry (VS Code), PulseMCP and MCP.Directory read from it | Versions can't change: bump, or a prerelease like `1.2.0-1` for listing-only edits. mcplane checks what's already published |
 | Grok plugins | **Publishes**: opens the pull request to `xai-org/plugin-marketplace`, validated with xAI's own scripts | Opens a pin-bump PR when xAI's daily bump lags |
-| ChatGPT | **Prepares** `chatgpt-app-submission.json` for the portal's import: listing, tools, hint justifications, 5+3 tests | New version when tool definitions change (ChatGPT rejects deploys that don't match) |
-| Claude connectors | **Prepares** every field of the directory form | Listing edit when tools or hints change |
-| Claude plugins, Cursor | **Prepares** and checks the plugin repo | Flags when your repo has moved past the reviewed commit |
+| ChatGPT | **Prepares** `chatgpt-app-submission.json` for the portal's import: listing, tools, hint justifications, 5+3 tests | Tool changes roll out after OpenAI's automated checks. Listing text and hint justifications need a new version, and drift says when |
+| Claude connectors | **Prepares** every field of the directory form | Tool changes are live on deploy; listing edits (tool names included) are reviewed |
+| Claude plugins | **Prepares** and checks the plugin repo | The portal tracks your branch; drift tells you a new version is waiting for review |
+| Cursor | **Prepares** and checks the plugin repo | Pinned to the commit first added; drift flags when you've moved on |
 | Muse | **Prepares** the form | Flags changes |
-| Docker, Smithery, awesome-mcp-servers | Gives the exact entry, file or command | |
+| Cline, Glama, LobeHub, Smithery, Docker, awesome-mcp-servers | The prefilled issue, `glama.json`, CLI command or entry | |
+| mcp.so, MCP Market, mcpservers.org, cursor.directory | `mcplane pack directories`: one sheet with every value to paste | |
 
-**What stays with you, and why.** The ChatGPT and Claude portals have no submission API. They ask you to make statements about policy, data use and testing that only you can make. mcplane gets you to the final click with every field filled and every known rejection checked. It never signs in for you, never ticks attestations and never gets around a bot check. If your agent has browser tools, the **ship** prompt offers to fill the form from the pack while you make the statements and press submit.
+**What stays with you, and why.** The ChatGPT and Claude portals have no submission API. Neither do most directories. They ask you to make statements about policy, data use and testing that only you can make. mcplane gets you to the final click with every field filled and every known rejection checked. It never signs in for you, never ticks attestations and never gets around a bot check. If your agent has browser tools, the **ship** prompt offers to fill the form from the pack while you make the statements and press submit.
 
 ## Preflight
 
@@ -81,15 +85,15 @@ Checks come from real rejections, most of them ours:
 
 - **Server**: `initialize`, `tools/list` and `ping` work. Unknown methods return `-32601` (OpenAI's tool scan probes `server/discover` and gives up on a crash). The URL works with a trailing slash. CORS preflight answers. Automated clients aren't blocked by a bot filter. A TLS 1.2 client connects. DNS doesn't advertise Encrypted ClientHello, which review proxies reset without a trace in your logs.
 - **OAuth**: unauthenticated calls get `401` with `resource_metadata`. Protected-resource and authorization-server metadata resolve, and PKCE S256 is supported. With `--register`, Dynamic Client Registration is tested, including the `cursor://` and other native redirect schemes that locked out every desktop client for us.
-- **Tools**: every tool has a title and explicit `readOnlyHint`, `destructiveHint` and `openWorldHint`, and the hints are consistent. Tools declare `outputSchema`. Descriptions don't instruct the model. Writes aren't authorised by a token passed through the chat (Anthropic rejected exactly that). `openWorldHint` is true on tools that send or publish. No sensitive inputs, no upgrade or pricing copy.
-- **Listing**: the icon is a square PNG of at least 512px behind a direct link, and `/favicon.ico` resolves. The privacy policy covers collection, retention and user controls. Support is a web page. Subtitle, one-liner and description fit. The ChatGPT domain challenge is served.
+- **Tools**: every tool has a title and explicit `readOnlyHint`, `destructiveHint` and `openWorldHint`, and the hints are consistent. Tools declare `outputSchema`. Descriptions don't instruct the model. Writes aren't authorised by a token passed through the chat (Anthropic rejected exactly that). Hints follow OpenAI's current definitions: `openWorldHint` for anything that reaches the public internet (read-only web search included), `destructiveHint` for messages that can't be unsent. No catch-all request tools, no tool names over 64 characters, no sensitive inputs, no upgrade or pricing copy.
+- **Listing**: the icon is a square PNG of at least 512px behind a direct link, and `/favicon.ico` resolves. The privacy policy covers collection, retention and user controls. Support is a web page. Name, subtitle, one-liner, description and starter prompts fit each store's limits. The ChatGPT domain challenge is served.
 - **Plugin repo**: public, on GitHub, with `.claude-plugin/plugin.json`, and no root `SKILL.md` shadowing the plugin's skills. Grok plugins come from an organisation.
 
 `--json` for machines; exit code 1 when something blocks.
 
 ## Keeping listings current
 
-Every store calls your live server, so fixes reach users on their own. Three things don't: tool definitions, listing text, and plugins pinned to a commit. When you record a submission, mcplane snapshots what the store is reviewing. `mcplane drift` compares your live server and `mcplane.json` against that snapshot and tells you what each store needs.
+Every store calls your live server, so fixes reach users on their own. What doesn't: listing text, tool names in Claude's listing, ChatGPT's hint justifications, registry versions and plugins pinned to a commit. Each store has different rules for these. When you record a submission, mcplane snapshots what the store is reviewing. `mcplane drift` compares your live server and `mcplane.json` against that snapshot and tells you what each store needs.
 
 ```sh
 mcplane submitted chatgpt --version 1.2.0 --app-id asdk_app_…
@@ -128,6 +132,24 @@ jobs:
           command: check   # preflight + drift --ci
 ```
 
+Publishing to the MCP Registry from CI needs no secrets for `io.github.*` names:
+
+```yaml
+  release:
+    runs-on: ubuntu-latest
+    permissions: { id-token: write, contents: read }
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+      - uses: <owner>/mcplane@v0
+        with:
+          command: publish mcp-registry --yes
+```
+
+For a reverse-DNS name, set an `MCP_PRIVATE_KEY` secret and mcplane signs in with `login dns`.
+
 ## Review Times
 
 `mcplane submitted` logs an anonymous report to [Review Times](https://reviewtimes.fyi), the public tracker of how long each store takes to review. The report holds the store, dates, the kind of submission and the public listing reference that lets it close itself when your listing appears. No code, names or email. `mcplane status` shows how long each of yours has waited next to each store's typical wait. `--private` (or `share: false`) keeps it local.
@@ -137,7 +159,7 @@ jobs:
 ```
 init --url <mcp url>          Create mcplane.json from your live server
 preflight [--store <id>]      Check against every store's rejection causes (--url, --json, --verbose, --register, --token)
-pack <store>                  Write a submission pack to .mcplane/packs
+pack <store>                  Write a submission pack to .mcplane/packs (or "pack directories")
 publish <store> [--yes]       Publish where the store allows it; dry run without --yes
 submitted <store>             Record a submission (--date, --kind, --version, --app-id, --private)
 decided <store> <outcome>     approved | rejected | withdrawn
