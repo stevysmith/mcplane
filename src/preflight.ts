@@ -15,8 +15,11 @@ export interface PreflightResult {
 function reminders(m: Manifest, stores: StoreId[]): string[] {
   const r: string[] = [];
   if (m.server.auth === 'oauth') {
-    r.push('Give reviewers a demo account: email and password, no 2FA, SMS or email confirmation, seeded with data that matches every test case. Re-check the seed right before submitting.');
+    r.push('Give reviewers a demo account a stranger can use: email and password (not your Google or SSO login), email already confirmed, no 2FA or SMS, seeded with data for every test case. Re-check the seed right before submitting.');
     r.push('Sign in through your OAuth flow once as a brand-new user. A blank post-sign-in redirect stranded a ChatGPT reviewer between registration and consent.');
+  }
+  if (stores.some((s) => s === 'chatgpt' || s === 'claude-connectors')) {
+    r.push('If a tool writes somewhere public (posts, sends, publishes), give reviewers a safe target: a sandbox account or a "playground" option that validates and then discards. Reviewers test writes; they shouldn’t post to a real timeline.');
   }
   if (stores.includes('chatgpt')) {
     r.push('ChatGPT needs a demo video recorded in developer mode that shows the tools your test cases use. Re-record it whenever tools change.');
@@ -25,6 +28,7 @@ function reminders(m: Manifest, stores: StoreId[]): string[] {
     r.push('ChatGPT allows one version in review at a time. To change a submission, Cancel Review and resubmit the same draft.');
   }
   if (stores.includes('claude-connectors') || stores.includes('claude-plugins')) {
+    if (stores.includes('claude-connectors')) r.push('Claude connectors are submitted from an organisation’s admin settings (claude.ai/directory/manage), so you need admin rights in a paid org. The tool list is synced from your server when you submit; it is not an editable field.');
     if (stores.includes('claude-plugins')) r.push('Run "claude plugin validate --strict" in the plugin repo; the portal validates every commit on the branch it tracks.');
     r.push('Claude: "Passed review" is not the same as listed. Check claude.ai/directory for your listing after approval; with the new portal you choose when to publish.');
   }

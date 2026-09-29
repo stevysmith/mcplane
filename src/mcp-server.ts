@@ -11,7 +11,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { drift } from './drift.js';
 import { fleet } from './fleet.js';
-import { pull, tryLinks } from './extras.js';
+import { tryLinks } from './extras.js';
+import { listings } from './listings.js';
 import { MANIFEST_FILE, draftManifest, loadManifest, storesOf } from './manifest.js';
 import { chatgptPack, claudePack, directoriesPack, simplePack, writePack } from './packs.js';
 import { preflight } from './preflight.js';
@@ -159,14 +160,19 @@ export async function serve(): Promise<void> {
   );
 
   server.registerTool(
-    'pull_listings',
+    'listings',
     {
-      title: 'Compare live listings with mcplane.json',
-      description: 'Reads the store listings that have an open feed (Claude directory, Cursor marketplace) and returns fields that differ from mcplane.json.',
-      inputSchema: { project: PROJECT },
-      annotations: { title: 'Pull', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      title: 'Where you’re listed, and whether it matches',
+      description:
+        'Reads every store with a public record (MCP Registry, Claude connectors and plugins, Cursor, Grok, Glama, the awesome lists, Docker) and returns, per store: listed, missing or unknown, plus differences from your live server and mcplane.json, such as tools missing from Claude’s synced inventory or a plugin pinned to an old commit.',
+      inputSchema: { project: PROJECT, stores: z.array(STORE).optional() },
+      annotations: { title: 'Listings', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    async ({ project }) => reply({ listings: await pull(await loadManifest(dirOf(project))) }),
+    async ({ project, stores }) => {
+      const m = await loadManifest(dirOf(project));
+      const rows = await listings(m, stores?.length ? stores : storesOf(m), { token: token() });
+      return reply({ listings: rows }, `Listed on ${rows.filter((r) => r.state === 'listed').length} of ${rows.length}; ${rows.filter((r) => r.issues.length).length} need a fix.`);
+    },
   );
 
   server.registerTool(
@@ -191,13 +197,13 @@ export async function serve(): Promise<void> {
     {
       title: 'Every project at a glance',
       description:
-        'Finds every mcplane.json under a folder (three levels down) and returns, per project: blocking preflight checks, store updates needed since the last submission, reviews waiting and stores it is live on. quick true skips the live checks.',
+        'Finds every mcplane.json under a folder (three levels down) and returns, per project: blocking preflight checks, store updates needed since the last submission, reviews waiting, where it is listed and listings that no longer match. quick true skips the live checks.',
       inputSchema: { root: z.string().optional().describe('Folder to search. Defaults to where mcplane was started.'), quick: z.boolean().default(false) },
       annotations: { title: 'Fleet', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ root, quick }) => {
       const rows = await fleet(dirOf(root), { checks: !quick, token: token() });
-      const bad = rows.filter((r) => r.error || r.blocking || r.driftActions?.length).length;
+      const bad = rows.filter((r) => r.error || r.blocking || r.driftActions?.length || r.listingIssues?.length).length;
       return reply({ projects: rows }, `${rows.length} projects, ${bad} need attention.`);
     },
   );

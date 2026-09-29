@@ -25,7 +25,8 @@ export type StoreId =
   | 'glama'
   | 'cline'
   | 'lobehub'
-  | 'awesome-mcp-servers';
+  | 'awesome-mcp-servers'
+  | 'awesome-remote-mcp-servers';
 
 export const STORE_NAMES: Record<StoreId, string> = {
   'mcp-registry': 'Official MCP Registry',
@@ -41,6 +42,7 @@ export const STORE_NAMES: Record<StoreId, string> = {
   cline: 'Cline MCP Marketplace',
   lobehub: 'LobeHub Market',
   'awesome-mcp-servers': 'awesome-mcp-servers',
+  'awesome-remote-mcp-servers': 'awesome-remote-mcp-servers',
 };
 
 export interface Manifest {

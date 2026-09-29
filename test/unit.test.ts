@@ -122,3 +122,11 @@ test('registry prereleases for listing-only changes', () => {
   assert.equal(pub.nextPrerelease('1.2.0'), '1.2.0-1');
   assert.equal(pub.nextPrerelease('1.2.0-1'), '1.2.0-2');
 });
+
+test('awesome-remote entry follows the list’s three-line format', async () => {
+  const { publish } = await import('../src/publish.js');
+  const r = await publish({ ...m, server: { ...m.server, auth: 'oauth' } }, 'awesome-remote-mcp-servers');
+  assert.ok(r.lines.includes(`- [Acme](https://acme.dev) \`${m.server.url}\``));
+  assert.ok(r.lines.some((l) => l.includes('glama.ai/mcp/connectors/io.github.acme/acme/badges/score.svg')));
+  assert.ok(r.lines.some((l) => l.startsWith('  🔐 - ')));
+});

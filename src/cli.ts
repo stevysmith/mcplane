@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { writeFile, access } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
-import { MANIFEST_FILE, draftManifest, loadManifest } from './manifest.js';
+import { MANIFEST_FILE, draftManifest, loadManifest, storesOf } from './manifest.js';
 import { VERSION } from './version.js';
 import { preflight } from './preflight.js';
 import { printPreflight } from './report.js';
@@ -10,7 +10,8 @@ import { recordDecision, recordSubmitted, status } from './submissions.js';
 import { chatgptPack, claudePack, directoriesPack, simplePack, writePack } from './packs.js';
 import { drift, printDrift, takeSnapshot } from './drift.js';
 import { publish } from './publish.js';
-import { lanes, pull, runLane, tryLinks } from './extras.js';
+import { lanes, runLane, tryLinks } from './extras.js';
+import { listings, printListings } from './listings.js';
 import { fleet, fleetRun, printFleet } from './fleet.js';
 
 const HELP = `mcplane: fastlane for MCP servers
@@ -35,8 +36,8 @@ Usage
   mcplane baseline <store> [--version x.y.z]   Record a listing that's already live as the drift baseline
   mcplane publish <store> [--yes]     Publish where the store allows it (mcp-registry, grok); dry run without --yes
   mcplane try                         Install links for every client, for you and your testers
-  mcplane pull                        Compare your live public listings with mcplane.json
-  mcplane lanes                       List lanes; run one with "mcplane <lane>" (built in: check, release)
+  mcplane listings [--store <id>]...  Where you're listed, and whether what went live matches your server (--ci)
+  mcplane lanes                       List lanes; run one with "mcplane <lane>" (built in: check, watch, release)
   mcplane fleet [--root <dir>]        Every project under a folder: blockers, store updates needed, reviews waiting
       --quick                         Skip the live checks; just submissions
   mcplane fleet run <command...>      Run any mcplane command in every project (e.g. fleet run publish mcp-registry --yes)
@@ -209,7 +210,7 @@ async function main() {
     const rows = await fleet(values.root ?? process.cwd(), { checks: !values.quick, token: values.token ?? process.env.MCPLANE_TOKEN });
     if (values.json) console.log(JSON.stringify(rows, null, 2));
     else printFleet(rows);
-    if (values.ci && rows.some((r) => r.error || r.blocking || r.driftActions?.length)) process.exitCode = 1;
+    if (values.ci && rows.some((r) => r.error || r.blocking || r.driftActions?.length || r.listingIssues?.length)) process.exitCode = 1;
     return;
   }
 
@@ -219,21 +220,13 @@ async function main() {
     return;
   }
 
-  if (cmd === 'pull') {
+  if (cmd === 'listings' || cmd === 'pull') {
     const m = await loadManifest();
-    const diffs = await pull(m);
-    if (values.json) {
-      console.log(JSON.stringify(diffs, null, 2));
-      return;
-    }
-    for (const d of diffs) {
-      if (!d.found) console.log(`${d.store}: not listed yet.`);
-      else if (!d.fields.length) console.log(`${d.store}: matches mcplane.json.`);
-      else {
-        console.log(`${d.store}: live listing differs${d.url ? ` (${d.url})` : ''}`);
-        for (const f of d.fields) console.log(`  ${f.field}\n    live:  ${f.live.slice(0, 160)}\n    yours: ${f.yours.slice(0, 160)}`);
-      }
-    }
+    const stores = ((values.store as string[] | undefined)?.length ? values.store : storesOf(m)) as StoreId[];
+    const rows = await listings(m, stores, { token: values.token ?? process.env.MCPLANE_TOKEN });
+    if (values.json) console.log(JSON.stringify(rows, null, 2));
+    else printListings(rows);
+    if (values.ci && rows.some((r) => r.issues.length)) process.exitCode = 1;
     return;
   }
 

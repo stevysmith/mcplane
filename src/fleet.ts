@@ -7,12 +7,13 @@ import { spawnSync } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { drift } from './drift.js';
+import { listings } from './listings.js';
 import { MANIFEST_FILE, loadManifest, storesOf } from './manifest.js';
 import { preflight } from './preflight.js';
 import { load } from './submissions.js';
 import type { Manifest, StoreId } from './types.js';
 
-const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.mcplane', '.next', '.wrangler', 'vendor', 'target']);
+const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.mcplane', '.next', '.wrangler', 'vendor', 'target', 'examples', 'fixtures', 'test', 'tests']);
 
 export interface Project {
   dir: string;
@@ -67,10 +68,12 @@ export interface FleetRow {
   noSnapshot?: StoreId[];
   waiting: { store: StoreId; since: string }[];
   live: StoreId[];
+  listedOn?: StoreId[];
+  listingIssues?: { store: StoreId; issue: string }[];
   error?: string;
 }
 
-/** Preflight, drift and submissions for every project under root. Checks run four projects at a time. */
+/** Preflight, drift, listings and submissions for every project under root. Checks run four projects at a time. */
 export async function fleet(root = process.cwd(), opts: { checks?: boolean; token?: string } = {}): Promise<FleetRow[]> {
   const projects = await findProjects(root);
   return pool(projects, 4, async (p): Promise<FleetRow> => {
@@ -91,6 +94,9 @@ export async function fleet(root = process.cwd(), opts: { checks?: boolean; toke
       const d = await drift(p.manifest, storesOf(p.manifest), { token: opts.token }, p.dir);
       row.driftActions = d.items.filter((i) => i.level === 'action').map((i) => ({ store: i.store, what: i.what }));
       row.noSnapshot = d.missing;
+      const l = await listings(p.manifest, storesOf(p.manifest), { token: opts.token });
+      row.listedOn = l.filter((x) => x.state === 'listed').map((x) => x.store);
+      row.listingIssues = l.flatMap((x) => x.issues.map((issue) => ({ store: x.store, issue })));
     } catch (e) {
       row.error = (e as Error).message;
     }
@@ -109,13 +115,15 @@ export function printFleet(rows: FleetRow[]): void {
       r.toReview ? `${r.toReview} to review` : '',
       r.driftActions?.length ? `${r.driftActions.length} store update${r.driftActions.length === 1 ? '' : 's'} needed` : '',
       r.waiting.length ? `waiting on ${r.waiting.map((w) => w.store).join(', ')}` : '',
-      r.live.length ? `live on ${r.live.join(', ')}` : '',
+      r.listedOn ? `listed on ${r.listedOn.length ? r.listedOn.join(', ') : 'nothing yet'}` : r.live.length ? `live on ${r.live.join(', ')}` : '',
+      r.listingIssues?.length ? `${r.listingIssues.length} listing fix${r.listingIssues.length === 1 ? '' : 'es'}` : '',
     ].filter(Boolean);
-    const mark = r.error || r.blocking || r.driftActions?.length ? '✗' : '✓';
+    const mark = r.error || r.blocking || r.driftActions?.length || r.listingIssues?.length ? '✗' : '✓';
     console.log(`${mark} ${(r.name ?? r.project).padEnd(24)} ${bits.join(' · ')}`);
     for (const a of r.driftActions ?? []) console.log(`    ${a.store}: ${a.what}`);
+    for (const a of r.listingIssues ?? []) console.log(`    ${a.store}: ${a.issue}`);
   }
-  const bad = rows.filter((r) => r.error || r.blocking || r.driftActions?.length).length;
+  const bad = rows.filter((r) => r.error || r.blocking || r.driftActions?.length || r.listingIssues?.length).length;
   console.log(`\n${rows.length} project${rows.length === 1 ? '' : 's'}, ${bad} need${bad === 1 ? 's' : ''} attention. Details: cd into one and run "mcplane preflight" or "mcplane drift".`);
 }
 

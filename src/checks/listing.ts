@@ -111,6 +111,18 @@ export async function listingChecks(m: Manifest, tools: Tool[], stores: StoreId[
   if (has(stores, 'claude-connectors', 'claude-plugins')) len(m.oneLiner, 200, 'listing.one-liner', 'One-liner', ['claude-connectors', 'claude-plugins']);
   len(m.description, 2000, 'listing.description', 'Description', []);
 
+  // Test cases must name tools the server actually has; descriptions drift away from live servers.
+  const named = [...new Set((m.tests?.positive ?? []).flatMap((t) => t.tools))];
+  if (tools.length && named.length) {
+    const live = new Set(tools.map((t) => t.name));
+    const unknown = named.filter((n) => !live.has(n));
+    checks.push(
+      unknown.length
+        ? { id: 'listing.test-tools', level: 'fail', title: 'Test cases use tools the server has', detail: unknown.join(', '), fix: 'Reviewers run your test cases against the live server. Update the tests, and check the description doesn’t promise tools you no longer expose.' }
+        : { id: 'listing.test-tools', level: 'pass', title: 'Test cases use tools the server has' },
+    );
+  }
+
   // ChatGPT domain verification
   if (has(stores, 'chatgpt')) {
     const ch = await get(`${origin}/.well-known/openai-apps-challenge`);

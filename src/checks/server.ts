@@ -37,9 +37,30 @@ export async function serverChecks(url: string, auth: 'none' | 'oauth', token?: 
     checks.push({ id: 'server.initialize', level: 'pass', title: 'initialize succeeds', detail: info ? `${info.name ?? ''} ${info.version ?? ''}`.trim() : undefined });
   }
 
-  if (auth === 'none' || (token && init.status < 300)) {
+  // An OAuth server that answers initialize without a token should list its tools the same way. One that
+  // initializes but then refuses tools/list leaves ChatGPT's new connector stuck on "no actions available":
+  // ChatGPT reads the list before signing in; Claude and Cursor sign in first, so they never show it.
+  if (auth === 'oauth' && !token && init.status < 300) {
+    const peek = await client.request('tools/list').catch(() => null);
+    const peekTools = (peek?.body?.result?.tools ?? []) as Tool[];
+    checks.push(
+      peekTools.length
+        ? { id: 'server.public-tools', level: 'pass', title: 'tools/list answers without a token, like initialize' }
+        : {
+            id: 'server.public-tools',
+            level: 'warn',
+            title: 'tools/list answers without a token, like initialize',
+            detail: `initialize works unsigned, tools/list gave HTTP ${peek?.status ?? 'error'} with ${peekTools.length} tools`,
+            fix: 'Either return 401 for everything until sign-in, or list tools without a token and gate execution. The half-way state froze one team’s ChatGPT connector at "no actions available" until they deleted and recreated it.',
+            stores: ['chatgpt'],
+          },
+    );
+    if (peekTools.length) tools = peekTools;
+  }
+
+  if (auth === 'none' || (token && init.status < 300) || tools.length) {
     const list = await client.request('tools/list').catch(() => null);
-    tools = list?.body?.result?.tools ?? [];
+    tools = list?.body?.result?.tools?.length ? list.body.result.tools : tools;
     checks.push(
       tools.length
         ? { id: 'server.tools', level: 'pass', title: 'tools/list returns tools', detail: tools.map((t) => t.name).join(', ') }

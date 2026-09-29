@@ -2,8 +2,6 @@
  * The fastlane ideas, for agent-era stores:
  *   lanes  named workflows in mcplane.json ("mcplane release")
  *   try    install links for every client, like pilot for TestFlight testers
- *   pull   read your live public listings back and compare with mcplane.json,
- *          like deliver's download_metadata
  */
 import { spawnSync } from 'node:child_process';
 import type { Manifest } from './types.js';
@@ -13,6 +11,8 @@ import type { Manifest } from './types.js';
 export const DEFAULT_LANES: Record<string, string[]> = {
   // Fast checks for CI on every push or deploy.
   check: ['preflight', 'drift --ci'],
+  // On a schedule: listings that went stale or never appeared.
+  watch: ['listings --ci', 'drift --ci'],
   // Everything for a release: checks, packs, the stores that can be automated, then your hand-offs.
   release: [
     'preflight',
@@ -74,54 +74,4 @@ export function tryLinks(m: Manifest): { client: string; how: string }[] {
     { client: 'Claude (web, desktop)', how: `Settings → Connectors → Add custom connector → ${url}` },
     { client: 'ChatGPT', how: `Turn on developer mode (Settings → Apps → Advanced), then Plugins → Add → Create MCP App → ${url}${m.server.auth === 'oauth' ? ' (OAuth)' : ' (No authentication)'}` },
   ];
-}
-
-/* ---------------- pull ---------------- */
-
-export interface ListingDiff {
-  store: string;
-  found: boolean;
-  fields: { field: string; live: string; yours: string }[];
-  url?: string;
-}
-
-const norm = (s?: string) => (s ?? '').replace(/\s+/g, ' ').trim();
-const sameUrl = (a?: string, b?: string) => !!a && !!b && a.replace(/\/+$/, '').replace(/\.git$/, '').toLowerCase() === b.replace(/\/+$/, '').replace(/\.git$/, '').toLowerCase();
-
-/** Reads the public listings that have an open feed and compares them with mcplane.json. */
-export async function pull(m: Manifest): Promise<ListingDiff[]> {
-  const out: ListingDiff[] = [];
-  // Claude connectors: Anthropic's public directory feed.
-  const res = await fetch('https://api.anthropic.com/api/directory/servers?verified_tier=anthropic,partner,community&visibility=commercial&limit=5000', { headers: { 'user-agent': 'mcplane' } }).catch(() => null);
-  const data = res?.ok ? ((await res.json().catch(() => null)) as { servers?: any[] } | null) : null;
-  const hit = data?.servers?.find((s) => sameUrl(s.remote?.url, m.server.url));
-  out.push({
-    store: 'Claude connectors',
-    found: !!hit,
-    url: hit?.directory_url,
-    fields: hit
-      ? [
-          ['name', hit.display_name ?? hit.name, m.title],
-          ['one-liner', hit.one_liner, m.oneLiner],
-          ['description', hit.description, m.description],
-        ]
-          .filter(([, live, yours]) => norm(live) && norm(yours) && norm(live) !== norm(yours))
-          .map(([field, live, yours]) => ({ field, live: norm(live), yours: norm(yours) }))
-      : [],
-  });
-  // Cursor: the marketplace page embeds every approved plugin.
-  if (m.repository) {
-    const page = await fetch('https://cursor.com/marketplace', { headers: { 'user-agent': 'mcplane' } }).then((r) => r.text()).catch(() => '');
-    const html = page.replace(/\\"/g, '"');
-    const repo = m.repository.replace(/\.git$/, '').replace(/\/+$/, '');
-    const i = html.toLowerCase().indexOf(`"repositoryurl":"${repo.toLowerCase()}`);
-    const around = i >= 0 ? html.slice(Math.max(0, i - 3000), i) : '';
-    const desc = around.match(/"description":"((?:[^"\\]|\\.)*)"[^{]*$/)?.[1];
-    out.push({
-      store: 'Cursor',
-      found: i >= 0,
-      fields: desc && norm(desc) !== norm(m.oneLiner ?? m.description) ? [{ field: 'description', live: norm(desc), yours: norm(m.oneLiner ?? m.description) }] : [],
-    });
-  }
-  return out;
 }

@@ -73,7 +73,7 @@ async function registryVersions(name: string): Promise<string[]> {
 /** 1.2.0 → 1.2.0-1, 1.2.0-1 → 1.2.0-2: the registry's way to change metadata without a new release. */
 const nextPrerelease = (v: string) => (/-(\d+)$/.test(v) ? v.replace(/-(\d+)$/, (_, n) => `-${Number(n) + 1}`) : `${v}-1`);
 
-const REGISTRY_READERS = 'GitHub’s MCP Registry (and VS Code), PulseMCP and MCP.Directory read from the official registry, so they pick this up on their own.';
+const REGISTRY_READERS = 'Glama and PulseMCP import from the official registry. GitHub’s MCP gallery (VS Code) needs a one-time manual onboarding, then syncs new versions. Run "mcplane listings" in a day or two to see where it landed.';
 
 async function publishRegistry(m: Manifest, yes: boolean, dir: string): Promise<PublishResult> {
   const json = serverJson(m);
@@ -209,6 +209,22 @@ async function publishGrok(m: Manifest, yes: boolean): Promise<PublishResult> {
 function prepared(m: Manifest, store: StoreId): PublishResult {
   const gh = ghRepo(m);
   const desc = m.oneLiner ?? m.subtitle ?? m.title;
+  if (store === 'awesome-remote-mcp-servers') {
+    const auth = m.server.auth === 'oauth' ? '🔐' : '🔓';
+    const reg = registryName(m);
+    const sentence = (desc.endsWith('.') ? desc : `${desc}.`).slice(0, 120);
+    return {
+      store,
+      done: false,
+      lines: [
+        'For hosted servers. Add this under the right category in punkpeye/awesome-remote-mcp-servers README.md (alphabetical):',
+        `- [${m.title}](${m.links?.website ?? m.server.url}) \`${m.server.url}\``,
+        `  [![${m.title} MCP connector](https://glama.ai/mcp/connectors/${reg}/badges/score.svg)](https://glama.ai/mcp/connectors/${reg})`,
+        `  ${auth} - ${sentence}`,
+        'Star the repo first (PRs from accounts that haven’t aren’t merged). CI sends an unauthenticated initialize: a 401 with WWW-Authenticate passes as OAuth. The Glama connector must exist ("mcplane listings"). Agent-opened PRs can end the title with 🤖🤖🤖 for the fast track.',
+      ],
+    };
+  }
   if (store === 'awesome-mcp-servers') {
     const link = gh ? `[${gh.owner}/${gh.repo}](https://github.com/${gh.owner}/${gh.repo})` : `[${m.title}](${m.links?.website ?? m.server.url})`;
     return {
@@ -230,10 +246,11 @@ function prepared(m: Manifest, store: StoreId): PublishResult {
       store,
       done: false,
       lines: [
-        `Add ${gh ? `https://github.com/${gh.owner}/${gh.repo}` : 'your GitHub repo'} at https://glama.ai/mcp/servers ("Add MCP Server"). Glama runs its own checks (license, security, health) and scores the server.`,
-        'To claim the listing, commit glama.json at the repo root:',
+        `Hosted servers: Glama imports a connector from the official registry at https://glama.ai/mcp/connectors/${registryName(m)}. Publish there first, then claim it.`,
+        `Code on GitHub: add ${gh ? `https://github.com/${gh.owner}/${gh.repo}` : 'the repo'} at https://glama.ai/mcp/servers ("Add MCP Server"); Glama checks license, security and health, and scores it.`,
+        'To claim either, commit glama.json at the repo root:',
         JSON.stringify({ $schema: 'https://glama.ai/mcp/schemas/server.json', maintainers: [owner] }, null, 2),
-        'awesome-mcp-servers asks for the Glama score badge on each entry, so do this first.',
+        'Both awesome lists require the Glama badge on each entry, so do this first.',
       ],
     };
   }

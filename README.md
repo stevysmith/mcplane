@@ -44,7 +44,7 @@ Cursor, VS Code and others: add a stdio server with command `npx` and args `["-y
 
 Then run the **onboard** prompt (`/mcp__mcplane__onboard` in Claude Code). The agent creates `mcplane.json` and reads your code. It writes the listing copy and the review test cases (ChatGPT wants exactly 5 positive and 3 negative), runs preflight and fixes what it can. The **ship** prompt takes it from there: check, pack, publish, and a short list of what's left for you.
 
-Tools: `preflight`, `drift`, `pack`, `publish`, `record_submission`, `record_decision`, `submission_status`, `install_links`, `pull_listings`, `init`, `fleet`. Every tool takes an optional `project` folder, so one mcplane serves all your apps. Annotations are honest: `publish` and `record_*` are marked open-world, and `publish` does nothing without `confirm: true`.
+Tools: `preflight`, `drift`, `pack`, `publish`, `record_submission`, `record_decision`, `submission_status`, `install_links`, `listings`, `init`, `fleet`. Every tool takes an optional `project` folder, so one mcplane serves all your apps. Annotations are honest: `publish` and `record_*` are marked open-world, and `publish` does nothing without `confirm: true`.
 
 ## Many apps
 
@@ -53,10 +53,11 @@ npx mcplane fleet --root ~/Projects
 ```
 
 ```
-✓ Review Times             preflight clean · live on chatgpt
-✗ Invoice Bot              2 blocking · waiting on claude-connectors
-✗ Weather Pro              1 store update needed
-    chatgpt: Tools changed since the live version (v1.2.0) on 2026-09-02: added forecast_hourly
+✓ Review Times             preflight clean · listed on mcp-registry, glama, chatgpt
+✗ Invoice Bot              2 blocking · waiting on claude-connectors · listed on mcp-registry
+✗ Weather Pro              1 store update needed · listed on mcp-registry, claude-connectors · 1 listing fix
+    chatgpt: Hints changed: send_alert
+    claude-connectors: listing doesn't show: forecast_hourly (ask the review team to resync)
 
 3 projects, 2 need attention.
 ```
@@ -67,13 +68,14 @@ npx mcplane fleet --root ~/Projects
 
 | Store | How mcplane gets you there | Keeping it current |
 |---|---|---|
-| Official MCP Registry | **Publishes**: writes `server.json`, runs `mcp-publisher`, signs in with GitHub OIDC in Actions. GitHub's MCP Registry (VS Code), PulseMCP and MCP.Directory read from it | Versions can't change: bump, or a prerelease like `1.2.0-1` for listing-only edits. mcplane checks what's already published |
+| Official MCP Registry | **Publishes**: writes `server.json`, runs `mcp-publisher`, signs in with GitHub OIDC in Actions. Glama and PulseMCP import from it; GitHub's MCP gallery (VS Code) syncs it after a one-time manual onboarding | Versions can't change: bump, or a prerelease like `1.2.0-1` for listing-only edits. mcplane checks what's already published |
 | Grok plugins | **Publishes**: opens the pull request to `xai-org/plugin-marketplace`, validated with xAI's own scripts | Opens a pin-bump PR when xAI's daily bump lags |
 | ChatGPT | **Prepares** `chatgpt-app-submission.json` for the portal's import: listing, tools, hint justifications, 5+3 tests | Tool changes roll out after OpenAI's automated checks. Listing text and hint justifications need a new version, and drift says when |
 | Claude connectors | **Prepares** every field of the directory form | Tool changes are live on deploy; listing edits (tool names included) are reviewed |
 | Claude plugins | **Prepares** and checks the plugin repo | The portal tracks your branch; drift tells you a new version is waiting for review |
 | Cursor | **Prepares** and checks the plugin repo | Pinned to the commit first added; drift flags when you've moved on |
 | Muse | **Prepares** the form | Flags changes |
+| awesome-remote-mcp-servers | The three-line entry with your Glama connector badge and auth marker, ready for the PR | |
 | Cline, Glama, LobeHub, Smithery, Docker, awesome-mcp-servers | The prefilled issue, `glama.json`, CLI command or entry | |
 | mcp.so, MCP Market, mcpservers.org, cursor.directory | `mcplane pack directories`: one sheet with every value to paste | |
 
@@ -83,13 +85,40 @@ npx mcplane fleet --root ~/Projects
 
 Checks come from real rejections, most of them ours:
 
-- **Server**: `initialize`, `tools/list` and `ping` work. Unknown methods return `-32601` (OpenAI's tool scan probes `server/discover` and gives up on a crash). The URL works with a trailing slash. CORS preflight answers. Automated clients aren't blocked by a bot filter. A TLS 1.2 client connects. DNS doesn't advertise Encrypted ClientHello, which review proxies reset without a trace in your logs.
+- **Server**: `initialize`, `tools/list` and `ping` work. An OAuth server that initializes without a token also lists its tools without one (the half-way state leaves a new ChatGPT connector stuck on "no actions available"). Unknown methods return `-32601` (OpenAI's tool scan probes `server/discover` and gives up on a crash). The URL works with a trailing slash. CORS preflight answers. Automated clients aren't blocked by a bot filter. A TLS 1.2 client connects. DNS doesn't advertise Encrypted ClientHello, which review proxies reset without a trace in your logs.
 - **OAuth**: unauthenticated calls get `401` with `resource_metadata`. Protected-resource and authorization-server metadata resolve, and PKCE S256 is supported. With `--register`, Dynamic Client Registration is tested, including the `cursor://` and other native redirect schemes that locked out every desktop client for us.
 - **Tools**: every tool has a title and explicit `readOnlyHint`, `destructiveHint` and `openWorldHint`, and the hints are consistent. Tools declare `outputSchema`. Descriptions don't instruct the model. Writes aren't authorised by a token passed through the chat (Anthropic rejected exactly that). Hints follow OpenAI's current definitions: `openWorldHint` for anything that reaches the public internet (read-only web search included), `destructiveHint` for messages that can't be unsent. No catch-all request tools, no tool names over 64 characters, no sensitive inputs, no upgrade or pricing copy.
-- **Listing**: the icon is a square PNG of at least 512px behind a direct link, and `/favicon.ico` resolves. The privacy policy covers collection, retention and user controls. Support is a web page. Name, subtitle, one-liner, description and starter prompts fit each store's limits. The ChatGPT domain challenge is served.
+- **Listing**: the icon is a square PNG of at least 512px behind a direct link, and `/favicon.ico` resolves. The privacy policy covers collection, retention and user controls. Support is a web page. Name, subtitle, one-liner, description and starter prompts fit each store's limits. Every test case uses tools the live server actually has. The ChatGPT domain challenge is served.
 - **Plugin repo**: public, on GitHub, with `.claude-plugin/plugin.json`, and no root `SKILL.md` shadowing the plugin's skills. Grok plugins come from an organisation.
 
 `--json` for machines; exit code 1 when something blocks.
+
+Preflight also lists what no script can see and that has still cost real submissions. For example: a reviewer account a stranger can actually use (not your Google login, email already confirmed, no 2FA), and a safe target for write tools so reviewers don't post to a real timeline.
+
+## Where you're listed
+
+```sh
+mcplane listings
+```
+
+```
+✗ Official MCP Registry        listed
+    latest is v1.0.0, mcplane.json says v1.0.1
+✓ Glama                        listed  (Imported from the registry. Claim it with glama.json so the score badge is yours.)
+✗ Claude connectors            listed  (tier: community)
+    listing doesn't show: forecast_hourly (ask the review team to resync)
+· Cursor Marketplace           missing
+? ChatGPT                      unknown  (OpenAI's directory can't be read automatically. Open your plugin page and compare.)
+```
+
+A form that returned 200 is a claim; the public record is the result. `listings` reads every store with an open record and compares it with your live server and `mcplane.json`:
+- MCP Registry: versions, status, endpoint.
+- Claude: the connectors directory feed, including the tool inventory synced at submission, which you can't edit yourself; and the community plugin mirror.
+- Cursor and Grok.
+- Glama's registry import.
+- Both awesome lists and Docker's catalog.
+
+Coverage decays quietly, so run it on a schedule (`--ci` exits 1 on a mismatch). `fleet` runs it for every project.
 
 ## Keeping listings current
 
@@ -115,7 +144,7 @@ Like fastlane's lanes: named workflows in `mcplane.json`.
 }
 ```
 
-`mcplane release` runs the steps in order and stops at the first failure. A `?` step may fail without stopping the lane. `handoff:` steps are listed at the end as your to-do. `check` and `release` are built in.
+`mcplane release` runs the steps in order and stops at the first failure. A `?` step may fail without stopping the lane. `handoff:` steps are listed at the end as your to-do. `check`, `watch` and `release` are built in.
 
 ## CI
 
@@ -130,6 +159,21 @@ jobs:
       - uses: stevysmith/mcplane@v0
         with:
           command: check   # preflight + drift --ci
+```
+
+And weekly, to catch listings that went stale:
+
+```yaml
+on:
+  schedule: [{ cron: '0 9 * * 1' }]
+jobs:
+  listings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: stevysmith/mcplane@v0
+        with:
+          command: watch   # listings --ci + drift --ci
 ```
 
 Publishing to the MCP Registry from CI needs no secrets for `io.github.*` names:
@@ -166,7 +210,7 @@ decided <store> <outcome>     approved | rejected | withdrawn
 status                        Your submissions, days waited, each store's typical wait
 drift [--ci]                  What each store needs since it last saw your server
 baseline <store>              Mark an existing live listing as the drift baseline
-pull                          Compare live public listings with mcplane.json
+listings [--ci]               Where you're listed, and whether what went live matches
 try                           Install links for every client, for you and your testers
 fleet [--root <dir>]          Every project at a glance (--quick, --json, --ci)
 fleet run <command...>        Run a command in every project
@@ -186,7 +230,7 @@ One file describes your server and its listings. [`schema.json`](schema.json) gi
 |---|---|
 | `precheck` | `preflight` |
 | `deliver` + metadata in the repo | `mcplane.json`, `pack`, `publish` |
-| `download_metadata` | `pull` |
+| `download_metadata` | `listings`: reads what went live back and diffs it |
 | `pilot` (TestFlight testers) | `try`: install links for every client |
 | Fastfile lanes | `lanes` |
 | `fastlane init` | `init`, and the **onboard** prompt that writes the listing for you |

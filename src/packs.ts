@@ -243,9 +243,9 @@ export function directoriesPack(m: Manifest): Pack {
   const repo = m.repository?.replace(/\.git$/, '');
   const desc = m.oneLiner ?? m.description ?? m.title;
   const rows: [string, string, string][] = [
-    ['MCP.Directory', 'https://mcp.directory/submit', 'Reads the official registry; claim the listing there, or submit a GitHub URL (reviewed within a day).'],
-    ['mcp.so', 'https://mcp.so/submit', 'Repo URL and name. Paid option skips review. No update mechanism: edit by hand.'],
-    ['MCP Market', 'https://mcpmarket.com/submit', 'GitHub URL, email, type. The free queue runs to weeks; paid lists within a day.'],
+    ['MCP.Directory', 'https://mcp.directory/submit', 'Says it auto-discovers from the official registry; its form wants a GitHub repo first, so hosted servers without public code can stall.'],
+    ['mcp.so', 'https://mcp.so/submit', 'Repo URL and name. Edits can return HTTP 200 with a hidden validation error (a tagline that is too long): check the public page after saving.'],
+    ['MCP Market', 'https://mcpmarket.com/submit', 'GitHub URL, email, type. The free queue runs to weeks; paid lists within a day. Check where its Try Now button sends people.'],
     ['mcpservers.org', 'https://mcpservers.org/submit', 'Has a field for your Official MCP Registry name. Free takes about two weeks.'],
     ['cursor.directory', 'https://cursor.directory', 'Submit from its MCP section.'],
   ];
@@ -265,6 +265,8 @@ Values to paste:
 | Directory | Where | Notes |
 |---|---|---|
 ${rows.map((r) => `| ${r[0]} | ${r[1]} | ${r[2]} |`).join('\n')}
+
+After any form: a save that returned 200 is a claim. Open the public page and check the endpoint, auth and every link.
 
 Directories send little traffic on their own; the registry, the big stores and your own docs matter more. Do these once, and don't pay to skip a queue unless a launch date depends on it.
 `;
