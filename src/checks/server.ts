@@ -57,12 +57,14 @@ export async function serverChecks(url: string, auth: 'none' | 'oauth', token?: 
     // OpenAI's scanner probes optional methods and treats a 500 / -32603 as a crash.
     const probe = await client.request('server/discover').catch(() => null);
     const code = probe?.body?.error?.code;
+    // Any other JSON-RPC error at HTTP 200 is survivable; a 5xx, -32603 or no JSON-RPC answer is not.
+    const survivable = probe?.status === 200 && typeof code === 'number' && code !== -32603;
     checks.push(
       probe && probe.status === 200 && code === -32601
         ? { id: 'server.unknown-method', level: 'pass', title: 'Unknown methods return -32601 (method not found)' }
         : {
             id: 'server.unknown-method',
-            level: 'fail',
+            level: survivable ? 'warn' : 'fail',
             title: 'Unknown methods return -32601 (method not found)',
             detail: `server/discover got HTTP ${probe?.status ?? 'error'}${code !== undefined ? `, code ${code}` : ''}`,
             fix: "Return JSON-RPC error -32601 at HTTP 200 for methods you don't implement. OpenAI's tool scan probes server/discover and aborts on a 500 or -32603.",

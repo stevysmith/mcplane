@@ -6,6 +6,7 @@
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { ensureLocalDir } from './manifest.js';
 import { McpClient } from './mcp-client.js';
 import type { Manifest, StoreId, Tool } from './types.js';
 
@@ -238,6 +239,7 @@ export async function simplePack(m: Manifest, store: StoreId): Promise<Pack> {
 }
 
 export async function writePack(pack: Pack, dir = process.cwd()): Promise<string[]> {
+  await ensureLocalDir(dir);
   const out = resolve(dir, '.mcplane/packs');
   await mkdir(out, { recursive: true });
   const written: string[] = [];
@@ -247,3 +249,5 @@ export async function writePack(pack: Pack, dir = process.cwd()): Promise<string
   }
   return written;
 }
+
+export const _test = { thirdPerson, justify };

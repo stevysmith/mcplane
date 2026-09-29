@@ -38,6 +38,7 @@ export const STORE_NAMES: Record<StoreId, string> = {
 };
 
 export interface Manifest {
+  $schema?: string;
   name: string;
   title: string;
   subtitle?: string;
@@ -58,6 +59,14 @@ export interface Manifest {
   };
   /** Hand-written ChatGPT hint justifications, per tool; they replace mcplane's drafts. */
   justifications?: Record<string, { readOnly?: string; openWorld?: string; destructive?: string }>;
+  /** Your server's version, for the MCP Registry and your own records. */
+  version?: string;
+  /** MCP Registry overrides: reverse-DNS name (io.github.<owner>/<name> by default), description (100 max), file path. */
+  registry?: { name?: string; description?: string; file?: string };
+  /** Grok marketplace entry overrides. */
+  grok?: { description?: string; category?: string; keywords?: string[]; domains?: string[] };
+  /** Named workflows, run with "mcplane <lane>": each step is a command line without "mcplane". */
+  lanes?: Record<string, string[]>;
   /** How reviewers get in, for servers behind sign-in. Never put the password here; say where it lives. */
   reviewerAccess?: string;
 }

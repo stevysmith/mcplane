@@ -1,0 +1,115 @@
+{
+  "$schema": "https://unpkg.com/mcplane/schema.json",
+  "name": "review-times",
+  "title": "Review Times",
+  "subtitle": "See app store review times",
+  "oneLiner": "Live review times for AI app, connector and plugin stores: ChatGPT, Claude, Muse, Grok, Cursor and more.",
+  "description": "Review Times shows how long AI app, connector and plugin stores are taking to review submissions right now, including ChatGPT plugins, Claude, Meta Muse, Grok and Cursor.\n\nAsk before you submit (\"How long is ChatGPT plugin review taking?\"), check whether a review that has gone quiet is normal, or compare stores before a launch. You get the typical wait (the median days to a decision, counting submissions still waiting), approval and rejection times, whether the queue is moving, and how each store's review works.\n\nThe numbers come from developer reports, public posts linked to their sources, and public review queues. If you want, you can add your own submission so the numbers get better for everyone. No account needed.",
+  "category": "developer-tools",
+  "server": {
+    "url": "https://reviewtimes.fyi/mcp",
+    "auth": "none"
+  },
+  "repository": "https://github.com/stevysmith/review-times-plugin",
+  "author": {
+    "name": "Yume Studios",
+    "url": "https://reviewtimes.fyi"
+  },
+  "links": {
+    "website": "https://reviewtimes.fyi",
+    "support": "https://reviewtimes.fyi/support",
+    "privacy": "https://reviewtimes.fyi/privacy",
+    "terms": "https://reviewtimes.fyi/terms",
+    "docs": "https://reviewtimes.fyi/llms.txt"
+  },
+  "icon": "https://reviewtimes.fyi/icon-512.png",
+  "prompts": [
+    "How long is ChatGPT plugin review taking right now?",
+    "Which AI app store reviews submissions fastest?",
+    "My Muse connector has been in review for a week. Is that normal?"
+  ],
+  "stores": [
+    "chatgpt",
+    "claude-connectors",
+    "claude-plugins",
+    "cursor",
+    "muse",
+    "grok",
+    "mcp-registry"
+  ],
+  "tests": {
+    "positive": [
+      {
+        "scenario": "Check one store's current review time",
+        "prompt": "How long is ChatGPT plugin review taking right now?",
+        "tools": [
+          "review_times"
+        ],
+        "expected": "The typical wait in days for ChatGPT plugins, median days to approval and to rejection, how many submissions are still waiting, whether the queue is moving, and how OpenAI's review works. Read-only, so no confirmation is needed."
+      },
+      {
+        "scenario": "Compare every store",
+        "prompt": "Compare review times across the AI app and plugin stores. Which is fastest right now?",
+        "tools": [
+          "review_times"
+        ],
+        "expected": "One row per tracked store with its typical wait and pace, so the assistant can say which is fastest. Stores with too few reports say so instead of giving a number."
+      },
+      {
+        "scenario": "Check whether a long review is normal",
+        "prompt": "My Claude Code plugin has been in review for 3 weeks. Is that normal?",
+        "tools": [
+          "review_times"
+        ],
+        "expected": "The Claude plugins typical wait, the oldest submission still waiting and the pace, so the assistant can compare 3 weeks with what other developers see."
+      },
+      {
+        "scenario": "Report your own submission, with an email",
+        "prompt": "I submitted my plugin to the Cursor Marketplace on 20 September 2026 and haven't heard back. Please add it to Review Times and send the update link to reviewer@example.com.",
+        "tools": [
+          "report_submission"
+        ],
+        "expected": "A public share link and emailed: true. The private update link is sent to that address and never appears in the chat. ChatGPT may ask the user to allow the write."
+      },
+      {
+        "scenario": "Report with a listing link so it closes itself",
+        "prompt": "Log my Claude connector at https://mcp.example.com/mcp. I submitted it to the Claude directory on 22 September 2026 and it's still waiting.",
+        "tools": [
+          "report_submission"
+        ],
+        "expected": "Reported as waiting with a public share link; the reply says it will be marked approved automatically when that server appears in Anthropic's public directory."
+      }
+    ],
+    "negative": [
+      {
+        "scenario": "Apple App Store review times (not tracked)",
+        "prompt": "How long does Apple's App Store take to review a new iPhone app?"
+      },
+      {
+        "scenario": "Submitting to a store for the user (Review Times only reports wait times)",
+        "prompt": "Submit my MCP server to the ChatGPT plugin directory for me."
+      },
+      {
+        "scenario": "Code review turnaround (a different meaning of review)",
+        "prompt": "How long do code reviews on pull requests usually take on a small team?"
+      }
+    ]
+  },
+  "justifications": {
+    "review_times": {
+      "readOnly": "It only reads current review-time statistics from Review Times' database and returns them. It never creates, changes or deletes anything.",
+      "openWorld": "It reads only Review Times' own database. It does not browse the web, call third-party services or reach any system outside Review Times.",
+      "destructive": "It is read-only, so it cannot delete or overwrite any data."
+    },
+    "report_submission": {
+      "readOnly": "It creates one new report (store, dates, status, optional note) in Review Times' database, which then counts toward that store's public wait times.",
+      "openWorld": "It publishes a public report on reviewtimes.fyi and, if the user gives an email, sends that one address an email with their private update link.",
+      "destructive": "It only adds a new report. It never modifies or deletes existing data, and the reporter can change or delete it later from the emailed link."
+    }
+  },
+  "version": "1.0.1",
+  "registry": {
+    "name": "fyi.reviewtimes/review-times",
+    "description": "Live review times for AI app stores: ChatGPT, Claude, Muse, Grok, Cursor. Check before you submit."
+  }
+}

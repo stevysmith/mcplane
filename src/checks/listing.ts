@@ -106,7 +106,7 @@ export async function listingChecks(m: Manifest, tools: Tool[], stores: StoreId[
     checks.push(
       body && body.length < 200 && !/<html/i.test(body)
         ? { id: 'listing.openai-challenge', level: 'pass', title: 'ChatGPT domain challenge is served', stores: ['chatgpt'] }
-        : { id: 'listing.openai-challenge', level: 'warn', title: 'ChatGPT domain challenge is served', detail: `HTTP ${ch?.status ?? 'error'}`, fix: `The ChatGPT form gives you a token to serve as plain text at ${origin}/.well-known/openai-apps-challenge. Add it before the MCP step, or domain verification blocks submission.`, stores: ['chatgpt'] },
+        : { id: 'listing.openai-challenge', level: 'warn', title: 'ChatGPT domain challenge is served', detail: ch?.ok ? 'answers, but with a web page rather than a plain-text token' : `HTTP ${ch?.status ?? 'error'}`, fix: `The ChatGPT form gives you a token to serve as plain text at ${origin}/.well-known/openai-apps-challenge. Add it before the MCP step, or domain verification blocks submission.`, stores: ['chatgpt'] },
     );
   }
 

@@ -5,7 +5,9 @@
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { ensureLocalDir } from './manifest.js';
 import type { Manifest, StoreId } from './types.js';
+import { markLive, takeSnapshot } from './drift.js';
 
 const RT = process.env.MCPLANE_REVIEWTIMES_URL ?? 'https://reviewtimes.fyi';
 const DIR = '.mcplane';
@@ -40,7 +42,7 @@ export async function load(dir = process.cwd()): Promise<Submission[]> {
 }
 
 async function save(list: Submission[], dir = process.cwd()): Promise<void> {
-  await mkdir(resolve(dir, DIR), { recursive: true });
+  await ensureLocalDir(dir);
   await writeFile(resolve(dir, FILE), JSON.stringify(list, null, 2) + '\n');
 }
 
@@ -57,7 +59,8 @@ function listingRef(m: Manifest, store: StoreId, appId?: string): string | undef
 export async function recordSubmitted(
   m: Manifest,
   store: StoreId,
-  opts: { date?: string; kind?: Submission['kind']; version?: string; appId?: string; share?: boolean },
+  opts: { date?: string; kind?: Submission['kind']; version?: string; appId?: string; share?: boolean; token?: string },
+  dir = process.cwd(),
 ): Promise<{ submission: Submission; note: string }> {
   const s: Submission = { store, kind: opts.kind ?? 'new', version: opts.version, submittedOn: opts.date ?? today(), status: 'waiting' };
   let note: string;
@@ -81,14 +84,16 @@ export async function recordSubmitted(
     s.reviewTimes = { token: body.token, shareUrl: body.share_url ?? null };
     note = `Logged to Review Times (anonymous). Public page: ${body.share_url ?? `${RT}/${slug}`}`;
   }
-  const list = await load();
+  const list = await load(dir);
   list.push(s);
-  await save(list);
+  await save(list, dir);
+  // What the store is reviewing, so "mcplane drift" can tell when the live server moves away from it.
+  await takeSnapshot(m, store, { version: opts.version, state: s.status === 'approved' ? 'live' : 'submitted', token: opts.token }, dir).catch(() => null);
   return { submission: s, note };
 }
 
-export async function recordDecision(store: StoreId, outcome: 'approved' | 'rejected' | 'withdrawn', date?: string): Promise<Submission> {
-  const list = await load();
+export async function recordDecision(store: StoreId, outcome: 'approved' | 'rejected' | 'withdrawn', date?: string, dir = process.cwd()): Promise<Submission> {
+  const list = await load(dir);
   const s = [...list].reverse().find((x) => x.store === store && x.status === 'waiting');
   if (!s) throw new Error(`No waiting ${store} submission recorded. Run "mcplane submitted ${store}" first.`);
   s.status = outcome;
@@ -101,7 +106,8 @@ export async function recordDecision(store: StoreId, outcome: 'approved' | 'reje
     });
     if (!res.ok) throw new Error(`Review Times didn't take the update: HTTP ${res.status}`);
   }
-  await save(list);
+  await save(list, dir);
+  if (outcome === 'approved') await markLive(store, dir);
   return s;
 }
 
@@ -112,8 +118,8 @@ export interface StatusRow {
 }
 
 /** Refreshes each waiting submission from Review Times (the directory watch may have closed it) and adds the store's typical wait. */
-export async function status(): Promise<StatusRow[]> {
-  const list = await load();
+export async function status(dir = process.cwd()): Promise<StatusRow[]> {
+  const list = await load(dir);
   const verdicts = new Map<string, string | null>();
   for (const s of list) {
     if (s.status === 'waiting' && s.reviewTimes) {
@@ -130,7 +136,7 @@ export async function status(): Promise<StatusRow[]> {
       verdicts.set(slug, r?.ok ? (((await r.json()) as { verdict?: string }).verdict ?? null) : null);
     }
   }
-  await save(list);
+  await save(list, dir);
   const dayMs = 86_400_000;
   return list.map((s) => {
     const end = s.decidedOn ? Date.parse(s.decidedOn) : Date.now();

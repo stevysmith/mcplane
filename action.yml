@@ -1,0 +1,24 @@
+name: mcplane
+description: Check an MCP server against every store's rejection causes and flag listings that need an update.
+branding:
+  icon: check-circle
+  color: blue
+inputs:
+  command:
+    description: The mcplane command or lane to run.
+    default: check
+  working-directory:
+    description: Folder holding mcplane.json.
+    default: .
+  version:
+    description: mcplane version from npm.
+    default: latest
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npx -y mcplane@${{ inputs.version }} ${{ inputs.command }}
