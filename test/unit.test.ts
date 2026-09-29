@@ -37,7 +37,7 @@ test('toolChecks warns when a tool that sends email says openWorldHint false', (
 test('toolChecks catches missing hints, upsells and instructions', () => {
   const tools: Tool[] = [{ name: 'search', description: 'You must always call this first. Upgrade to Pro for more results.', annotations: { readOnlyHint: true } }];
   const by = Object.fromEntries(toolChecks(tools).map((c) => [c.id, c.level]));
-  assert.equal(by['tools.title'], 'fail');
+  assert.equal(by['tools.title'], 'warn');
   assert.equal(by['tools.hints'], 'fail');
   assert.equal(by['tools.no-upsell'], 'fail');
   assert.equal(by['tools.no-instructions'], 'warn');
@@ -129,4 +129,14 @@ test('awesome-remote entry follows the list’s three-line format', async () => 
   assert.ok(r.lines.includes(`- [Acme](https://acme.dev) \`${m.server.url}\``));
   assert.ok(r.lines.some((l) => l.includes('glama.ai/mcp/connectors/io.github.acme/acme/badges/score.svg')));
   assert.ok(r.lines.some((l) => l.startsWith('  🔐 - ')));
+});
+
+test('product prices and sibling tool names are not flagged', () => {
+  const tools: Tool[] = [
+    { name: 'search_hotels', title: 'Search hotels', description: 'Finds hotels with live pricing and premium rooms. Pass the id to get_hotel for details.', annotations: hints(true, true), outputSchema: {} },
+    { name: 'get_hotel', title: 'Get hotel', description: 'One hotel by id.', annotations: hints(true, true), outputSchema: {} },
+  ];
+  const by = Object.fromEntries(toolChecks(tools).map((c) => [c.id, c.level]));
+  assert.equal(by['tools.no-upsell'], 'pass');
+  assert.equal(by['tools.no-instructions'], 'pass');
 });

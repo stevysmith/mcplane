@@ -16,7 +16,8 @@ const INSTRUCTION = [
 ];
 
 /** Plan and pricing copy. OpenAI prohibits in-app upsells, "including freemium upsells". */
-const UPSELL = /\b(upgrade|pro plan|premium|paid plan|pricing|subscribe|subscription|free trial|unlock)\b/i;
+// Plan and tier language only: product prices ("live pricing", "premium cars") are not upsells.
+const UPSELL = /\b(upgrade (to|your|now)|pro plan|premium (plan|tier|account|subscription|version)|paid (plan|tier|account)|free trial|subscribe (to|now)|unlock (more|premium|pro|unlimited|all))\b/i;
 
 /** Inputs that suggest a write authorised only by a secret passed through the chat. */
 const BEARER_INPUT = /^(token|edit_token|update_token|secret|access_key|api_key|password)$/i;
@@ -24,12 +25,11 @@ const BEARER_INPUT = /^(token|edit_token|update_token|secret|access_key|api_key|
 export function toolChecks(tools: Tool[]): Check[] {
   if (!tools.length) return [];
   const checks: Check[] = [];
-  const names = new Set(tools.map((t) => t.name));
 
   const noTitle = tools.filter((t) => !t.title && !t.annotations?.title);
   checks.push(
     noTitle.length
-      ? { id: 'tools.title', level: 'fail', title: 'Every tool has a human-readable title', detail: noTitle.map((t) => t.name).join(', '), fix: 'Add "title" (or annotations.title) to each tool. Anthropic rejects connectors without them.', stores: ['claude-connectors', 'claude-plugins'] }
+      ? { id: 'tools.title', level: 'warn', title: 'Every tool has a human-readable title', detail: noTitle.map((t) => t.name).join(', '), fix: 'Add "title" (or annotations.title) to each tool. Clients show the raw name without one, and Anthropic’s reviewers ask for them on new submissions.', stores: ['claude-connectors', 'claude-plugins'] }
       : { id: 'tools.title', level: 'pass', title: 'Every tool has a human-readable title' },
   );
 
@@ -62,8 +62,8 @@ export function toolChecks(tools: Tool[]): Check[] {
   const instructing = tools.flatMap((t) => {
     const text = `${t.description ?? ''}`;
     const hits = INSTRUCTION.filter((re) => re.test(text)).map((re) => text.match(re)![0]);
-    const others = [...names].filter((n) => n !== t.name && text.includes(n));
-    return hits.length || others.length ? [`${t.name}: ${[...hits.map((h) => `"${h}"`), ...others.map((n) => `mentions ${n}`)].join(', ')}`] : [];
+    // Naming a sibling tool ("call get_session first") is common in approved listings, so only explicit instructions count.
+    return hits.length ? [`${t.name}: ${hits.map((h) => `"${h}"`).join(', ')}`] : [];
   });
   checks.push(
     instructing.length
