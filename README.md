@@ -7,6 +7,8 @@ npx mcplane init --url https://mcp.example.com/mcp
 npx mcplane preflight
 ```
 
+No terminal handy? Paste your URL at [reviewtimes.fyi/check](https://reviewtimes.fyi/check).
+
 ```
 ✗ DNS does not advertise Encrypted ClientHello [ChatGPT]
     example.com has ech= in its HTTPS record
@@ -219,6 +221,17 @@ mcp                           Run as an MCP server over stdio
 ```
 
 Servers behind sign-in: pass `--token` or set `MCPLANE_TOKEN` so tool checks can run.
+
+## Use the checks in your own code
+
+`mcplane/core` runs anywhere with `fetch` (Workers, Deno, Bun, Node):
+
+```ts
+import { draftManifest, preflight } from 'mcplane/core';
+const report = await preflight(await draftManifest('https://mcp.example.com/mcp'));
+```
+
+It's what powers [reviewtimes.fyi/check](https://reviewtimes.fyi/check). The TLS 1.2 handshake needs a raw socket, so only the CLI runs that one.
 
 ## mcplane.json
 

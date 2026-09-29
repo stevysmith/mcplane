@@ -1,11 +1,13 @@
-import { connect } from 'node:tls';
 import { McpClient } from '../mcp-client.js';
 import type { Check, Tool } from '../types.js';
 
 const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36';
 
 /** Connects the way a store's scanner does and returns the tool list for the other checks. */
-export async function serverChecks(url: string, auth: 'none' | 'oauth', token?: string): Promise<{ checks: Check[]; tools: Tool[] }> {
+/** A check that needs a raw socket, which only some runtimes have. Node passes the TLS 1.2 check in. */
+export type SocketCheck = (url: string) => Promise<Check>;
+
+export async function serverChecks(url: string, auth: 'none' | 'oauth', token?: string, extra: SocketCheck[] = []): Promise<{ checks: Check[]; tools: Tool[] }> {
   const checks: Check[] = [];
   const bearer: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {};
   const client = new McpClient(url, bearer);
@@ -141,27 +143,9 @@ export async function serverChecks(url: string, auth: 'none' | 'oauth', token?: 
     });
   }
 
-  checks.push(await tls12Check(url));
+  for (const c of extra) checks.push(await c(url));
   checks.push(await echCheck(url));
   return { checks, tools };
-}
-
-/** Some review networks only speak TLS 1.2. */
-function tls12Check(url: string): Promise<Check> {
-  const host = new URL(url).hostname;
-  return new Promise((resolve) => {
-    const sock = connect({ host, port: 443, servername: host, maxVersion: 'TLSv1.2', timeout: 8000 }, () => {
-      sock.end();
-      resolve({ id: 'server.tls12', level: 'pass', title: 'A TLS 1.2 client can connect' });
-    });
-    const bad = (why: string) =>
-      resolve({ id: 'server.tls12', level: 'warn', title: 'A TLS 1.2 client can connect', detail: why, fix: 'Allow TLS 1.2; some corporate and review proxies cannot do TLS 1.3.' });
-    sock.on('error', (e) => bad(e.message));
-    sock.on('timeout', () => {
-      sock.destroy();
-      bad('timed out');
-    });
-  });
 }
 
 /** Encrypted ClientHello in DNS makes TLS-inspecting proxies reset the connection. */

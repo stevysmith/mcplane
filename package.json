@@ -1,6 +1,6 @@
 {
   "name": "mcplane",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "fastlane for MCP servers: preflight against every store's rejection causes, publish where you can, prepare the rest, track every review.",
   "type": "module",
   "bin": {
@@ -52,5 +52,13 @@
     "url": "https://github.com/stevysmith/mcplane/issues"
   },
   "author": "Steve Smith",
-  "mcpName": "io.github.stevysmith/mcplane"
+  "mcpName": "io.github.stevysmith/mcplane",
+  "exports": {
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "default": "./dist/core.js"
+    },
+    "./schema.json": "./schema.json",
+    "./package.json": "./package.json"
+  }
 }
