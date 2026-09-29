@@ -1,0 +1,40 @@
+{
+  "name": "mcplane",
+  "version": "0.1.0",
+  "description": "fastlane for MCP servers: preflight against every store's rejection causes, publish where you can, prepare the rest, track every review.",
+  "type": "module",
+  "bin": {
+    "mcplane": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "schema.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "chatgpt",
+    "claude",
+    "cursor",
+    "plugin",
+    "connector",
+    "submission",
+    "fastlane"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
