@@ -7,6 +7,7 @@ import { preflight } from './preflight.js';
 import { printPreflight } from './report.js';
 import { STORE_NAMES, type Manifest, type StoreId } from './types.js';
 import { recordDecision, recordSubmitted, status } from './submissions.js';
+import { chatgptPack, claudePack, simplePack, writePack } from './packs.js';
 
 const HELP = `mcplane: fastlane for MCP servers
 
@@ -24,6 +25,7 @@ Usage
       --private                       Keep it local; don't log to Review Times
   mcplane decided <store> approved|rejected|withdrawn [--date YYYY-MM-DD]
   mcplane status                      Every submission, how long it's waited, and the store's typical wait
+  mcplane pack <store>                Write a submission pack to .mcplane/packs (chatgpt, claude-connectors, cursor, muse)
 
 Stores: ${Object.keys(STORE_NAMES).join(', ')}
 `;
@@ -94,6 +96,25 @@ async function main() {
     if (!['approved', 'rejected', 'withdrawn'].includes(outcome)) throw new Error('Say how it went: approved, rejected or withdrawn.');
     const s = await recordDecision(store, outcome, values.date);
     console.log(`${STORE_NAMES[store]}: ${outcome} on ${s.decidedOn}, ${Math.round((Date.parse(s.decidedOn!) - Date.parse(s.submittedOn)) / 86_400_000)} days after submitting.`);
+    return;
+  }
+
+  if (cmd === 'pack') {
+    const m = await loadManifest();
+    const store = asStore(positionals[0]);
+    const token = values.token ?? process.env.MCPLANE_TOKEN;
+    const pack = store === 'chatgpt' ? await chatgptPack(m, token) : store === 'claude-connectors' ? await claudePack(m, token) : await simplePack(m, store);
+    const written = await writePack(pack);
+    console.log(`Wrote ${written.join(', ')}`);
+    if (pack.problems.length) {
+      console.log('\nFix before submitting:');
+      for (const p of pack.problems) console.log(`  ✗ ${p}`);
+    }
+    if (pack.todo.length) {
+      console.log('\nThen:');
+      for (const t of pack.todo) console.log(`  • ${t}`);
+    }
+    process.exitCode = pack.problems.length ? 1 : 0;
     return;
   }
 

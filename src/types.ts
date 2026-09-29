@@ -51,6 +51,15 @@ export interface Manifest {
   icon?: string;
   prompts?: string[];
   stores?: StoreId[];
+  /** Review test cases: ChatGPT wants exactly 5 positive and 3 negative. */
+  tests?: {
+    positive?: { scenario: string; prompt: string; tools: string[]; expected: string }[];
+    negative?: { scenario: string; prompt: string }[];
+  };
+  /** Hand-written ChatGPT hint justifications, per tool; they replace mcplane's drafts. */
+  justifications?: Record<string, { readOnly?: string; openWorld?: string; destructive?: string }>;
+  /** How reviewers get in, for servers behind sign-in. Never put the password here; say where it lives. */
+  reviewerAccess?: string;
 }
 
 export interface Tool {
