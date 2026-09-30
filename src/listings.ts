@@ -105,7 +105,7 @@ async function grok(m: Manifest, head?: string): Promise<Listing> {
 async function glama(m: Manifest): Promise<Listing> {
   const url = `https://glama.ai/mcp/connectors/${registryName(m)}`;
   const code = await status(url);
-  if (code === 200) return { store: 'glama', state: 'listed', url, issues: [], note: 'Imported from the registry. Claim it with glama.json so the score badge is yours.' };
+  if (code === 200) return { store: 'glama', state: 'listed', url, issues: [], note: 'Imported from the registry. Claim it (Claim ownership on that page; "mcplane publish glama" has the steps) so the listing and badge are yours.' };
   if (code === 404) return { store: 'glama', state: 'missing', issues: [], note: 'Glama imports connectors from the official registry; publish there first.' };
   return { store: 'glama', state: 'unknown', issues: [] };
 }

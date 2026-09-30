@@ -241,15 +241,24 @@ function prepared(m: Manifest, store: StoreId): PublishResult {
     return { store, done: false, lines: [`smithery mcp publish ${m.server.url} -n @<your-org>/${m.name}`, 'Or at https://smithery.ai/new. If Smithery’s scan can’t get past your sign-in, serve /.well-known/mcp/server-card.json describing your tools.'] };
   }
   if (store === 'glama') {
+    const reg = registryName(m);
     const owner = gh?.owner ?? '<your-github-user>';
+    const domainNs = !reg.startsWith('io.github.');
+    const domain = reg.split('/')[0].split('.').reverse().join('.');
     return {
       store,
       done: false,
       lines: [
-        `Hosted servers: Glama imports a connector from the official registry at https://glama.ai/mcp/connectors/${registryName(m)}. Publish there first, then claim it.`,
-        `Code on GitHub: add ${gh ? `https://github.com/${gh.owner}/${gh.repo}` : 'the repo'} at https://glama.ai/mcp/servers ("Add MCP Server"); Glama checks license, security and health, and scores it.`,
-        'To claim either, commit glama.json at the repo root:',
-        JSON.stringify({ $schema: 'https://glama.ai/mcp/schemas/server.json', maintainers: [owner] }, null, 2),
+        `Hosted server: Glama imports it from the official registry as a connector, https://glama.ai/mcp/connectors/${reg}. Publish there first.`,
+        domainNs
+          ? `To claim it: open that page, choose Claim ownership, sign in, and verify ${domain} with the token Glama shows, either as a TXT record at _glama-claim.${domain} or as https://${domain}/.well-known/glama.json ({"$schema":"https://glama.ai/mcp/schemas/connector.json","claim":"glama_claim_…"}). One verification covers every connector under the domain.`
+          : `To claim it: open that page, choose Claim ownership and "Claim with GitHub" as ${reg.split('/')[0].slice('io.github.'.length)}. An organisation also needs the Glama GitHub App installed.`,
+        ...(gh
+          ? [
+              `Server code on GitHub is a separate listing: add https://github.com/${gh.owner}/${gh.repo} at https://glama.ai/mcp/servers ("Add MCP Server") and claim it with glama.json at the repo root:`,
+              JSON.stringify({ $schema: 'https://glama.ai/mcp/schemas/server.json', maintainers: [owner] }, null, 2),
+            ]
+          : []),
         'Both awesome lists require the Glama badge on each entry, so do this first.',
       ],
     };
