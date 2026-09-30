@@ -102,12 +102,21 @@ export async function listingChecks(m: Manifest, tools: Tool[], stores: StoreId[
     len(g.subtitle, 30, 'listing.subtitle', 'Subtitle', ['chatgpt']);
     const prompts = g.prompts ?? [];
     const bad = prompts.filter((p) => p.length > 128 || /(^|\s)@\w/.test(p));
+    if (prompts.length > 3) bad.push(`${prompts.length} prompts (at most 3)`);
     const dupes = prompts.filter((p, i) => prompts.findIndex((q) => q.trim().toLowerCase() === p.trim().toLowerCase()) !== i);
     if (bad.length || dupes.length) {
-      checks.push({ id: 'listing.prompts', level: 'fail', title: 'Starter prompts are short, unique and free of @mentions', detail: [...bad.map((p) => `"${p.slice(0, 40)}…"`), ...dupes.map((p) => `duplicate: "${p.slice(0, 40)}"`)].join('; '), fix: 'ChatGPT rejects starter prompts over 128 characters, with @mentions, or repeated.', stores: ['chatgpt'] });
+      checks.push({ id: 'listing.prompts', level: 'fail', title: 'Starter prompts are short, unique and free of @mentions', detail: [...bad.map((p) => `"${p.slice(0, 40)}…"`), ...dupes.map((p) => `duplicate: "${p.slice(0, 40)}"`)].join('; '), fix: 'ChatGPT takes at most 3 starter prompts, each one line of up to 128 characters, unique, with no @mentions.', stores: ['chatgpt'] });
     } else if (prompts.length) {
       checks.push({ id: 'listing.prompts', level: 'pass', title: 'Starter prompts are short, unique and free of @mentions', stores: ['chatgpt'] });
     }
+    len(g.description, 4000, 'listing.chatgpt-description', 'Long description for ChatGPT', ['chatgpt']);
+    // The plugin package requires all four listing URLs for MCP review.
+    const missing = (['website', 'support', 'privacy', 'terms'] as const).filter((k) => !g.links?.[k]?.startsWith('https://'));
+    checks.push(
+      missing.length
+        ? { id: 'listing.chatgpt-urls', level: 'fail', title: 'Website, support, privacy and terms URLs are set', detail: `missing or not https: ${missing.join(', ')}`, fix: 'ChatGPT’s plugin package requires all four as https URLs for MCP review.', stores: ['chatgpt'] }
+        : { id: 'listing.chatgpt-urls', level: 'pass', title: 'Website, support, privacy and terms URLs are set', stores: ['chatgpt'] },
+    );
   }
   if (has(stores, 'claude-connectors', 'claude-plugins')) len(forStore(m, 'claude-connectors').title, 100, 'listing.claude-name', 'Name for Claude', ['claude-connectors', 'claude-plugins']);
   if (has(stores, 'claude-connectors', 'claude-plugins')) len(forStore(m, 'claude-connectors').oneLiner, 200, 'listing.one-liner', 'One-liner', ['claude-connectors', 'claude-plugins']);

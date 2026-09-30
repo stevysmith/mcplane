@@ -21,7 +21,7 @@ export const DEFAULT_LANES: Record<string, string[]> = {
     'pack claude-connectors',
     'publish mcp-registry',
     'publish grok',
-    'handoff: Upload .mcplane/packs/chatgpt-app-submission.json in the ChatGPT portal, tick the policy statements and submit. Then: mcplane submitted chatgpt --app-id <asdk_app_…>',
+    'handoff: Upload the ZIP in .mcplane/packs/chatgpt/ at platform.openai.com/plugins, add reviewer credentials and hint justifications (see chatgpt.md), make the attestations and submit. Then: mcplane submitted chatgpt --app-id <asdk_app_…>',
     'handoff: Paste .mcplane/packs/claude-connectors.md into claude.ai/directory/manage/new, make the compliance statements yourself and submit. Then: mcplane submitted claude-connectors',
   ],
 };

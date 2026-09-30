@@ -1,21 +1,20 @@
 /**
- * Submission packs: everything a store's form asks for, in its order, checked
- * against its limits. ChatGPT gets the chatgpt-app-submission.json its portal
- * imports (the format OpenAI's own chatgpt-app-submission skill writes); the
- * rest get a markdown pack to paste from.
+ * Submission packs: everything a store asks for, checked against its limits.
+ * ChatGPT gets the plugin ZIP its portal uploads; the rest get a markdown pack
+ * to paste from.
  */
 import { mkdir, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { ensureLocalDir } from './manifest.js';
 import { forStore } from './draft.js';
 import { McpClient } from './mcp-client.js';
+import { zip } from './zip.js';
 import type { Manifest, StoreId, Tool } from './types.js';
 
-const CATEGORIES = ['BUSINESS', 'COLLABORATION', 'DESIGN', 'DEVELOPER_TOOLS', 'EDUCATION', 'ENTERTAINMENT', 'FINANCE', 'FOOD', 'LIFESTYLE', 'NEWS', 'PRODUCTIVITY', 'SHOPPING', 'TRAVEL'];
 const MAX_JUSTIFICATION = 200; // the ChatGPT form cuts longer ones without warning
 
 export interface Pack {
-  files: { path: string; content: string }[];
+  files: { path: string; content: string | Uint8Array }[];
   problems: string[];
   todo: string[];
 }
@@ -63,34 +62,93 @@ function justify(t: Tool, product: string, own?: { readOnly?: string; openWorld?
   };
 }
 
+/** The categories ChatGPT's package validator accepts, and the old form's names mapped onto them. */
+const CATEGORIES = ['Productivity', 'Creativity', 'Developer Tools', 'Business & Operations', 'Data & Analytics', 'Communication', 'Education & Research', 'Security', 'Finance', 'Healthcare', 'Travel', 'Entertainment', 'Other'];
+const OLD_CATEGORY: Record<string, string> = {
+  BUSINESS: 'Business & Operations', COLLABORATION: 'Communication', DESIGN: 'Creativity', DEVELOPER_TOOLS: 'Developer Tools', EDUCATION: 'Education & Research',
+  ENTERTAINMENT: 'Entertainment', FINANCE: 'Finance', PRODUCTIVITY: 'Productivity', TRAVEL: 'Travel', FOOD: 'Other', LIFESTYLE: 'Other', NEWS: 'Other', SHOPPING: 'Other',
+};
+function category(raw?: string): string | null {
+  if (!raw) return null;
+  const hit = CATEGORIES.find((c) => c.toLowerCase() === raw.toLowerCase());
+  return hit ?? OLD_CATEGORY[raw.toUpperCase().replace(/[^A-Z]+/g, '_')] ?? null;
+}
+
+/** WCAG contrast ratio between two #RRGGBB colours. */
+function contrast(a: string, b: string): number {
+  const lum = (hex: string) => {
+    const [r, g, bl] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+}
+
+/** Downloads an icon and checks it against the package rules: square, 48 to 4096 px, 5 MiB, PNG/JPEG/WebP/SVG. */
+async function fetchIcon(url: string, label: string, problems: string[]): Promise<{ data: Uint8Array; ext: string } | null> {
+  const res = await fetch(url, { headers: { 'user-agent': 'mcplane' } }).catch(() => null);
+  if (!res?.ok) {
+    problems.push(`${label} ${url} didn't load (HTTP ${res?.status ?? 'error'})`);
+    return null;
+  }
+  const type = res.headers.get('content-type') ?? '';
+  const data = new Uint8Array(await res.arrayBuffer());
+  const ext = type.includes('svg') || url.endsWith('.svg') ? 'svg' : type.includes('jpeg') || /\.jpe?g$/.test(url) ? 'jpg' : type.includes('webp') || url.endsWith('.webp') ? 'webp' : 'png';
+  if (data.length > 5 * 1024 * 1024) problems.push(`${label} is ${(data.length / 1048576).toFixed(1)} MiB; the limit is 5 MiB`);
+  if (ext === 'png' && data[0] === 0x89) {
+    const v = new DataView(data.buffer, data.byteOffset);
+    const [w, h] = [v.getUint32(16), v.getUint32(20)];
+    if (w !== h) problems.push(`${label} is ${w}×${h}; it must be square`);
+    else if (w < 48 || w > 4096) problems.push(`${label} is ${w} px; it must be 48 to 4096 px`);
+  }
+  return { data, ext };
+}
+
+/**
+ * ChatGPT: the plugin ZIP the portal takes since DevDay (27 Sep 2026). plugin.json in the
+ * Agent Plugins format carries the listing, the 5+3 test cases, demo video, release notes
+ * and translations; mcp.json points at the server; icons are bundled. Reviewer credentials,
+ * hint justifications and the policy attestations stay in the dashboard.
+ */
 export async function chatgptPack(m: Manifest, token?: string): Promise<Pack> {
   m = forStore(m, 'chatgpt');
+  const g = m.chatgpt ?? {};
   const tools = await listTools(m, token);
   const problems: string[] = [];
   const todo: string[] = [];
-  const category = (m.category ?? '').toUpperCase().replace(/[^A-Z]+/g, '_');
-  if (!CATEGORIES.includes(category)) problems.push(`category "${m.category ?? ''}" isn't one of ChatGPT's: ${CATEGORIES.join(', ')}`);
-  if ((m.subtitle ?? '').length > 30) problems.push(`subtitle is ${m.subtitle!.length} characters; the limit is 30`);
-  if (!m.subtitle) problems.push('subtitle is missing (30 characters, a plain functional phrase)');
+  const need = (ok: unknown, msg: string) => {
+    if (!ok) problems.push(msg);
+  };
+  const oneLine = (v: string | undefined, max: number, label: string) => {
+    need(v, `${label} is missing`);
+    if (v && v.length > max) problems.push(`${label} is ${v.length} characters; the limit is ${max}`);
+    if (v && /\n/.test(v)) problems.push(`${label} must be one line`);
+  };
+
+  need(/^[a-z0-9]+(-[a-z0-9]+)*$/.test(m.name) && m.name.length <= 64, `name "${m.name}" must be lowercase letters, digits and single hyphens, at most 64 characters`);
+  need(m.version && /^\d+\.\d+\.\d+/.test(m.version), 'version must be a semantic version (e.g. 1.0.0); every upload needs a new one');
+  oneLine(m.title, 30, 'Display name (title)');
+  oneLine(m.subtitle, 30, 'Short description (subtitle)');
+  need(m.description, 'Long description is missing');
+  if ((m.description ?? '').length > 4000) problems.push(`Long description is ${m.description!.length} characters; the limit is 4000`);
+  const developerName = g.developerName ?? m.author?.name;
+  oneLine(developerName, 80, 'Developer name (chatgpt.developerName or author.name)');
+  const cat = category(m.category);
+  need(cat, `category "${m.category ?? ''}" isn't one of: ${CATEGORIES.join(', ')}`);
+  for (const [k, v] of Object.entries({ website: m.links?.website, support: m.links?.support, privacy: m.links?.privacy, terms: m.links?.terms }))
+    need(v && v.startsWith('https://'), `links.${k} must be an https URL (all four are required for review)`);
+  const prompts = m.prompts ?? [];
+  if (prompts.length > 3) problems.push(`${prompts.length} starter prompts; the limit is 3`);
+  for (const p of prompts) if (p.length > 128 || /\n/.test(p) || /(^|\s)@\w/.test(p)) problems.push(`starter prompt "${p.slice(0, 40)}…" must be one line, at most 128 characters, with no @mention`);
+  for (const c of g.capabilities ?? []) if (c.length > 120) problems.push(`capability "${c.slice(0, 40)}…" is over 120 characters`);
+  if ((g.capabilities ?? []).length > 20) problems.push('at most 20 capabilities');
+  if (g.brandColor && (!/^#[0-9a-fA-F]{6}$/.test(g.brandColor) || contrast(g.brandColor, '#FFFFFF') < 2)) problems.push(`brandColor ${g.brandColor} needs 2:1 contrast against white`);
+  if (g.brandColorDark && (!/^#[0-9a-fA-F]{6}$/.test(g.brandColorDark) || contrast(g.brandColorDark, '#212121') < 2)) problems.push(`brandColorDark ${g.brandColorDark} needs 2:1 contrast against #212121`);
+  need(g.demoVideo, 'chatgpt.demoVideo is missing: a reviewer-accessible video URL showing the main use cases (required for review)');
+  need(g.releaseNotes, 'chatgpt.releaseNotes is missing (required for review)');
 
   const missingHints = tools.filter((t) => ['readOnlyHint', 'openWorldHint', 'destructiveHint'].some((h) => typeof (t.annotations as any)?.[h] !== 'boolean'));
   for (const t of missingHints) problems.push(`${t.name} doesn't set all three hints; ChatGPT treats that as a blocker`);
-
-  const toolsOut = Object.fromEntries(
-    tools.map((t) => [
-      t.name,
-      {
-        annotations: {
-          readOnlyHint: !!t.annotations?.readOnlyHint,
-          openWorldHint: !!t.annotations?.openWorldHint,
-          destructiveHint: !!t.annotations?.destructiveHint,
-        },
-        justifications: justify(t, m.title, m.justifications?.[t.name]),
-      },
-    ]),
-  );
-  const drafted = tools.filter((t) => !m.justifications?.[t.name]).map((t) => t.name);
-  if (drafted.length) todo.push(`Read the drafted justifications for ${drafted.join(', ')}: they come from your hints and tool descriptions. Once they say exactly what each tool changes, save them under "justifications" in mcplane.json so every version reuses them.`);
   for (const [name, j] of Object.entries(m.justifications ?? {})) for (const [k, v] of Object.entries(j)) if (v && v.length > MAX_JUSTIFICATION) problems.push(`justifications.${name}.${k} is ${v.length} characters; ChatGPT cuts at ${MAX_JUSTIFICATION}`);
 
   const pos = m.tests?.positive ?? [];
@@ -102,55 +160,115 @@ export async function chatgptPack(m: Manifest, token?: string): Promise<Pack> {
   const covered = new Set(pos.flatMap((p) => p.tools));
   for (const t of tools) if (!covered.has(t.name)) todo.push(`No positive test uses ${t.name}. Reviewers check every tool.`);
 
-  const json = {
-    $schema: 'https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json',
-    schema_version: 1,
-    app_info: { display_name: m.title, subtitle: m.subtitle ?? '', description: m.description ?? '', category: CATEGORIES.includes(category) ? category : 'PRODUCTIVITY' },
-    tools: toolsOut,
-    ...(pos.length
-      ? {
-          test_cases: pos.map((p) => ({ description: p.scenario, user_prompt: p.prompt, file_attachment_urls: null, tools_triggered: p.tools.join(', '), expected_output: p.expected, expected_output_url: null })),
-        }
-      : {}),
-    ...(neg.length
-      ? {
-          negative_test_cases: neg.map((n) => ({ description: n.scenario, user_prompt: n.prompt, file_attachment_urls: null, tools_triggered: null, expected_output: `${m.title} should not be invoked.`, expected_output_url: null })),
-        }
-      : {}),
+  // Icons, bundled into the package.
+  const assets: { path: string; data: Uint8Array }[] = [];
+  const icon = async (url: string | undefined, file: string, label: string) => {
+    if (!url) return undefined;
+    const got = await fetchIcon(url, label, problems);
+    if (!got) return undefined;
+    const path = `assets/${file}.${got.ext}`;
+    assets.push({ path, data: got.data });
+    return `./${path}`;
   };
+  need(m.icon, 'icon is missing: a direct URL to a square image, 48 to 4096 px');
+  const logo = await icon(m.icon, 'logo', 'icon');
+  const composerIcon = (await icon(g.composerIcon, 'composer-icon', 'chatgpt.composerIcon')) ?? logo;
+  const logoDark = await icon(g.logoDark, 'logo-dark', 'chatgpt.logoDark');
 
-  const steps = `# ChatGPT submission: ${m.title}
+  const plugin = {
+    $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
+    name: m.name,
+    version: m.version ?? '1.0.0',
+    description: m.oneLiner ?? m.subtitle ?? m.title,
+    author: { name: developerName ?? m.title, ...(m.author?.url ? { url: m.author.url } : {}) },
+    ...(m.links?.website ? { homepage: m.links.website } : {}),
+    ...(m.repository ? { repository: m.repository } : {}),
+    extensions: {
+      'com.openai': {
+        interface: {
+          displayName: m.title,
+          shortDescription: m.subtitle ?? '',
+          longDescription: m.description ?? '',
+          developerName: developerName ?? '',
+          category: cat ?? 'Other',
+          capabilities: g.capabilities ?? [],
+          websiteURL: m.links?.website,
+          supportURL: m.links?.support,
+          privacyPolicyURL: m.links?.privacy,
+          termsOfServiceURL: m.links?.terms,
+          ...(prompts.length ? { defaultPrompt: prompts.slice(0, 3) } : {}),
+          ...(g.brandColor ? { brandColor: g.brandColor } : {}),
+          ...(g.brandColorDark ? { brandColorDark: g.brandColorDark } : {}),
+          ...(logo ? { logo } : {}),
+          ...(composerIcon ? { composerIcon } : {}),
+          ...(logoDark ? { logoDark } : {}),
+        },
+        review: {
+          test_cases: {
+            positive: pos.map((p) => ({ description: p.scenario, prompt: p.prompt, tools_triggered: p.tools.join(', '), expected_behavior: p.expected })),
+            negative: neg.map((n) => ({ description: n.scenario, prompt: n.prompt })),
+          },
+          ...(g.demoVideo ? { demo_recording_url: g.demoVideo } : {}),
+          ...(g.commerce !== undefined ? { commerce: g.commerce } : {}),
+          ...(g.commerceDescription ? { commerce_description: g.commerceDescription } : {}),
+        },
+        publication: {
+          ...(g.countries ? { countries: g.countries } : {}),
+          ...(g.releaseNotes ? { release_notes: g.releaseNotes } : {}),
+          ...(g.translations ? { translations: g.translations } : {}),
+        },
+      },
+    },
+  };
+  const mcp = { $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json', mcpServers: { [m.name]: { type: 'streamable-http', url: m.server.url } } };
+  const pkg = zip([
+    { path: 'plugin.json', data: JSON.stringify(plugin, null, 2) + '\n' },
+    { path: 'mcp.json', data: JSON.stringify(mcp, null, 2) + '\n' },
+    ...assets,
+  ]);
+  const zipName = `${m.name}-${m.version ?? '1.0.0'}.zip`;
 
-Upload \`chatgpt-app-submission.json\` on the Info step ("Use Codex to fill this form"): it fills app info, tool justifications and tests.
+  // Justifications still go in the dashboard, one per hint, per tool.
+  const justified = tools
+    .map((t) => {
+      const j = justify(t, m.title, m.justifications?.[t.name]);
+      const a = t.annotations ?? {};
+      return `### ${t.name}\n- readOnlyHint ${!!a.readOnlyHint}: ${j.read_only_justification}\n- openWorldHint ${!!a.openWorldHint}: ${j.open_world_justification}\n- destructiveHint ${!!a.destructiveHint}: ${j.destructive_justification}`;
+    })
+    .join('\n\n');
+  const drafted = tools.filter((t) => !m.justifications?.[t.name]).map((t) => t.name);
+  if (drafted.length) todo.push(`Read the drafted justifications for ${drafted.join(', ')} in chatgpt.md. Once they say exactly what each tool changes, save them under "justifications" in mcplane.json.`);
 
-## Before you start
-- A verified organisation on platform.openai.com (Settings, Organization). Start early; it can lag.
-- Domain challenge: the MCP step gives you a token to serve as plain text at ${new URL(m.server.url).origin}/.well-known/openai-apps-challenge.
-- A demo video recorded in ChatGPT developer mode showing the tools your tests use, hosted as an .mp4 URL.
-- Icons: a directory icon (square PNG, 256 px or more) and a composer icon (48 px or more; the developer-mode dialog caps uploads at 10 KB).
+  const steps = `# ChatGPT submission: ${m.title} ${m.version ?? ''}
 
-## Fields the JSON doesn't cover
-- Developer identity and Plugin Author: must match your verified legal or business name.
-- Website: ${m.links?.website ?? 'MISSING'}
-- Customer support URL (a URL, not an email): ${m.links?.support ?? 'MISSING'}
-- Privacy policy: ${m.links?.privacy ?? 'MISSING'}
-- Terms: ${m.links?.terms ?? 'MISSING'}
-- MCP server URL: ${m.server.url} (${m.server.auth === 'oauth' ? 'OAuth' : 'No Auth'})${m.server.auth === 'oauth' ? `\n- Test credentials: ${m.reviewerAccess ?? 'MISSING: an email-and-password demo account with no 2FA, seeded for every test case'}` : ''}
-- Prompts (up to 3): ${(m.prompts ?? []).slice(0, 3).map((p) => `"${p}"`).join(', ') || 'none set'}
+## 1. Upload the package
+platform.openai.com/plugins → **Upload new or existing plugin** → choose your verified developer identity → upload \`${zipName}\`.
+It fills the listing, icons, test cases, demo video, release notes and translations. To change any of them later, edit mcplane.json, bump "version" and run \`mcplane pack chatgpt\` again.
+
+## 2. Resolve findings
+Open **Metadata & Skills** and **MCPs**, wait for the checks, fix anything listed (Copy issues is handy), and upload again if the package changes.
+Domain verification: serve the token it gives you as plain text at ${new URL(m.server.url).origin}/.well-known/openai-apps-challenge, and keep it there.
+
+## 3. What only you can enter
+- **Review details:** reviewer credentials${m.server.auth === 'oauth' ? ` (${m.reviewerAccess ?? 'an email-and-password account with no 2FA, SMS or email confirmation, seeded for every test case'})` : ' (none needed: no sign-in)'}. Credentials never go in the ZIP.
+- **Hint justifications**, one per value on every tool (200 characters each, cut without warning):
+
+${justified}
+
+- **Submit for review** and the policy attestations.
 
 ## Traps
-- Run "Scan Tools" twice if the first click shows nothing.
-- Justifications over 200 characters are cut without warning.
-- Typing into fields while the draft autosaves can drop characters; re-read before submitting.
-- "Submit for Review" shows nothing for about 20 seconds. Confirm on the plugins list that the version reads "Review".
-- One version can be in review at a time. Changing tools on a published plugin needs a new version.
+- One review can be active per plugin. To replace a package in review, cancel the review first.
+- "Submit for review" can show nothing for a while; confirm the status on the Plugins page.
+- Tool changes don't need a new package: OpenAI's scans pick them up. Listing changes do.
 
-When it's in: \`mcplane submitted chatgpt --app-id <asdk_app_… from the URL>\`
+When it's in: \`mcplane submitted chatgpt --version ${m.version ?? '1.0.0'} --app-id <asdk_app_… from the URL>\`
 `;
   return {
     files: [
-      { path: 'chatgpt-app-submission.json', content: JSON.stringify(json, null, 2) + '\n' },
-      { path: 'chatgpt.md', content: steps },
+      { path: `chatgpt/${zipName}`, content: pkg },
+      { path: 'chatgpt/plugin.json', content: JSON.stringify(plugin, null, 2) + '\n' },
+      { path: 'chatgpt/chatgpt.md', content: steps },
     ],
     problems,
     todo,
@@ -283,10 +401,11 @@ export async function writePack(pack: Pack, dir = process.cwd()): Promise<string
   await mkdir(out, { recursive: true });
   const written: string[] = [];
   for (const f of pack.files) {
+    await mkdir(dirname(resolve(out, f.path)), { recursive: true });
     await writeFile(resolve(out, f.path), f.content);
     written.push(`.mcplane/packs/${f.path}`);
   }
   return written;
 }
 
-export const _test = { thirdPerson, justify };
+export const _test = { thirdPerson, justify, contrast, category };

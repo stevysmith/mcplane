@@ -22,6 +22,8 @@ interface ToolShape {
   hints: { readOnly?: boolean; destructive?: boolean; openWorld?: boolean };
   input: string;
   output: string;
+  /** UI and extension metadata (entrypoints, resource URIs), when the tool declares any. */
+  ui?: string;
 }
 
 export interface Snapshot {
@@ -50,6 +52,13 @@ function canon(v: unknown): string {
   return JSON.stringify(sort(v));
 }
 
+/** The parts of _meta that put a tool on screen: MCP Apps UI, ChatGPT extension entrypoints, output templates. */
+function uiOf(t: Tool): string {
+  const m = t._meta ?? {};
+  const picked = Object.fromEntries(Object.entries({ ui: m.ui, openai: m['openai/ui'], template: m['openai/outputTemplate'] }).filter(([, v]) => v !== undefined));
+  return Object.keys(picked).length ? canon(picked) : '';
+}
+
 function shape(t: Tool): ToolShape {
   return {
     name: t.name,
@@ -58,6 +67,7 @@ function shape(t: Tool): ToolShape {
     hints: { readOnly: t.annotations?.readOnlyHint, destructive: t.annotations?.destructiveHint, openWorld: t.annotations?.openWorldHint },
     input: canon(t.inputSchema),
     output: canon(t.outputSchema),
+    ui: uiOf(t),
   };
 }
 
@@ -137,6 +147,8 @@ export function diffTools(before: ToolShape[], now: ToolShape[]) {
     for (const h of ['readOnly', 'destructive', 'openWorld'] as const) if (o.hints[h] !== t.hints[h]) fields.push(`${h}Hint ${o.hints[h]} → ${t.hints[h]}`);
     if (o.input !== t.input) fields.push('inputs');
     if (o.output !== t.output) fields.push('outputSchema');
+    // Snapshots from before 0.4 have no ui field; don't report that as a change.
+    if (o.ui !== undefined && o.ui !== t.ui) fields.push('UI/extensions');
     if ((o.title ?? '') !== (t.title ?? '')) fields.push('title');
     if ((o.description ?? '') !== (t.description ?? '')) fields.push('description');
     if (fields.length) changed.push({ tool: name, fields });

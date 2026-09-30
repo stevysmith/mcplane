@@ -148,3 +148,25 @@ test('per-store listing text overrides the shared fields for that store only', a
   assert.equal(forStore(withClaude, 'chatgpt').description, 'Shared.');
   assert.equal(forStore(withClaude, 'claude-connectors').oneLiner, m.oneLiner);
 });
+
+test('zip writes entries a standard reader can inflate', async () => {
+  const { zip } = await import('../src/zip.js');
+  const { inflateRawSync } = await import('node:zlib');
+  const out = zip([{ path: 'plugin.json', data: '{"name":"acme"}' }, { path: 'assets/a.bin', data: new Uint8Array([1, 2, 3]) }]);
+  const v = new DataView(out.buffer, out.byteOffset);
+  const end = out.length - 22;
+  assert.equal(v.getUint32(end, true), 0x06054b50);
+  assert.equal(v.getUint16(end + 10, true), 2);
+  const nameLen = v.getUint16(26, true);
+  const size = v.getUint32(18, true);
+  const body = out.slice(30 + nameLen, 30 + nameLen + size);
+  assert.equal(new TextDecoder().decode(inflateRawSync(body)), '{"name":"acme"}');
+});
+
+test('ChatGPT categories map from the old form and brand colours need contrast', () => {
+  assert.equal(packs.category('DEVELOPER_TOOLS'), 'Developer Tools');
+  assert.equal(packs.category('business & operations'), 'Business & Operations');
+  assert.equal(packs.category('Snacks'), null);
+  assert.ok(packs.contrast('#2357C6', '#FFFFFF') >= 2);
+  assert.ok(packs.contrast('#FFFF66', '#FFFFFF') < 2);
+});

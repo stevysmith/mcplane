@@ -73,6 +73,28 @@ export interface Manifest {
   version?: string;
   /** MCP Registry overrides: reverse-DNS name (io.github.<owner>/<name> by default), description (100 max), file path. */
   registry?: { name?: string; description?: string; file?: string };
+  /** ChatGPT plugin package fields (plugin.json) that have no shared equivalent. */
+  chatgpt?: {
+    /** Publisher name shown in the listing (80 max). Defaults to author.name. */
+    developerName?: string;
+    /** Capability labels (20 max, 120 characters each). */
+    capabilities?: string[];
+    /** #RRGGBB with 2:1 contrast against white; the dark one against #212121. */
+    brandColor?: string;
+    brandColorDark?: string;
+    /** Direct image URLs; default to "icon". */
+    composerIcon?: string;
+    logoDark?: string;
+    /** Reviewer-accessible video URL showing the main use cases (required for review). */
+    demoVideo?: string;
+    commerce?: boolean;
+    commerceDescription?: string;
+    /** Uppercase country codes; leave out to keep current targeting. */
+    countries?: string[];
+    /** What changed in this version (required for review). */
+    releaseNotes?: string;
+    translations?: Record<string, { subtitle?: string; description?: string }>;
+  };
   /** Grok marketplace entry overrides. */
   grok?: { description?: string; category?: string; keywords?: string[]; domains?: string[] };
   /** Named workflows, run with "mcplane <lane>": each step is a command line without "mcplane". */
@@ -95,6 +117,7 @@ export interface Tool {
   description?: string;
   inputSchema?: { properties?: Record<string, unknown>; required?: string[] };
   outputSchema?: unknown;
+  _meta?: Record<string, unknown>;
   annotations?: {
     title?: string;
     readOnlyHint?: boolean;

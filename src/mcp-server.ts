@@ -71,7 +71,7 @@ export async function serve(): Promise<void> {
     {
       title: 'Write a submission pack',
       description:
-        'Writes everything a store’s submission form asks for into .mcplane/packs: chatgpt-app-submission.json for ChatGPT’s import, markdown packs for claude-connectors, cursor and muse, and one sheet for the form-only directories. Returns the files written and any problems to fix first.',
+        'Writes everything a store’s submission form asks for into .mcplane/packs: the plugin ZIP ChatGPT’s portal uploads (listing, icons, 5+3 tests, release notes) with a checklist for the dashboard-only steps, markdown packs for claude-connectors, cursor and muse, and one sheet for the form-only directories. Returns the files written and any problems to fix first.',
       inputSchema: { project: PROJECT, store: z.enum(['chatgpt', 'claude-connectors', 'cursor', 'muse', 'directories']) },
       annotations: { title: 'Pack', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

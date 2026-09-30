@@ -72,7 +72,7 @@ npx mcplane fleet --root ~/Projects
 |---|---|---|
 | Official MCP Registry | **Publishes**: writes `server.json`, runs `mcp-publisher`, signs in with GitHub OIDC in Actions. Glama and PulseMCP import from it; GitHub's MCP gallery (VS Code) syncs it after a one-time manual onboarding | Versions can't change: bump, or a prerelease like `1.2.0-1` for listing-only edits. mcplane checks what's already published |
 | Grok plugins | **Publishes**: opens the pull request to `xai-org/plugin-marketplace`, validated with xAI's own scripts | Opens a pin-bump PR when xAI's daily bump lags |
-| ChatGPT | **Prepares** `chatgpt-app-submission.json` for the portal's import: listing, tools, hint justifications, 5+3 tests | Tool changes roll out after OpenAI's automated checks. Listing text and hint justifications need a new version, and drift says when |
+| ChatGPT | **Builds the plugin ZIP** the portal uploads since DevDay: `plugin.json` (Agent Plugins format) with listing, icons, 5+3 tests, demo video, release notes and translations, plus `mcp.json`. Checked against OpenAI's submission rules | Tool changes roll out after OpenAI's scans. Listing changes need a new ZIP and review, and drift says when |
 | Claude connectors | **Prepares** every field of the directory form | Tool changes are live on deploy; listing edits (tool names included) are reviewed |
 | Claude plugins | **Prepares** and checks the plugin repo | The portal tracks your branch; drift tells you a new version is waiting for review |
 | Cursor | **Prepares** and checks the plugin repo | Pinned to the commit first added; drift flags when you've moved on |
@@ -121,6 +121,21 @@ A form that returned 200 is a claim; the public record is the result. `listings`
 - Both awesome lists and Docker's catalog.
 
 Coverage decays quietly, so run it on a schedule (`--ci` exits 1 on a mismatch). `fleet` runs it for every project.
+
+## ChatGPT's plugin ZIP
+
+Since DevDay (September 2026) ChatGPT takes a plugin ZIP. `mcplane pack chatgpt` builds it from `mcplane.json`: `plugin.json` in the Agent Plugins format, with listing, icons, the 5 positive and 3 negative test cases, demo video, release notes and translations, plus `mcp.json`. It checks the package against OpenAI's submission rules first: name and description lengths, category, the four https URLs, at most 3 starter prompts, square icons of 48 to 4096 px, brand-colour contrast.
+
+```json
+"chatgpt": {
+  "demoVideo": "https://example.com/demo.mp4",
+  "releaseNotes": "Adds hourly forecasts.",
+  "capabilities": ["Search forecasts", "Compare cities"],
+  "brandColor": "#2357C6"
+}
+```
+
+What stays with you: upload the ZIP, enter reviewer credentials and the per-tool hint justifications (drafted in `chatgpt.md`), and make the attestations. Bump `version` for every upload. Tool changes don't need a new ZIP; OpenAI's scans pick them up, and `drift` tracks extension metadata (sidebar, panels, file viewers) as part of each tool.
 
 ## Keeping listings current
 

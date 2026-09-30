@@ -154,5 +154,11 @@ export function toolChecks(tools: Tool[]): Check[] {
       : { id: 'tools.no-upsell', level: 'pass', title: 'No upgrade or pricing copy in tools' },
   );
 
+  // ChatGPT extensions (DevDay 2026): entrypoints declared in _meta["openai/ui"]. Reported so they show up in reviews and drift.
+  const ext = tools.flatMap((t) =>
+    (((t._meta?.['openai/ui'] as { entrypoints?: { type: string; extensions?: string[] }[] } | undefined)?.entrypoints) ?? []).map((e) => `${t.name}: ${e.type}${e.extensions?.length ? ` (${e.extensions.join(', ')})` : ''}`),
+  );
+  if (ext.length) checks.push({ id: 'tools.extensions', level: 'pass', title: 'ChatGPT extensions declared', detail: ext.join('; '), stores: ['chatgpt'] });
+
   return checks;
 }

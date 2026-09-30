@@ -62,7 +62,7 @@
     },
     "category": {
       "type": "string",
-      "description": "ChatGPT category, e.g. DEVELOPER_TOOLS, PRODUCTIVITY, BUSINESS."
+      "description": "ChatGPT category: Productivity, Creativity, Developer Tools, Business & Operations, Data & Analytics, Communication, Education & Research, Security, Finance, Healthcare, Travel, Entertainment or Other (the old form's names like DEVELOPER_TOOLS are mapped)."
     },
     "server": {
       "type": "object",
@@ -306,6 +306,80 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "chatgpt": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "ChatGPT plugin package fields (plugin.json) with no shared equivalent.",
+      "properties": {
+        "developerName": {
+          "type": "string",
+          "description": "Publisher name (80 max). Defaults to author.name.",
+          "maxLength": 80
+        },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 120
+          }
+        },
+        "brandColor": {
+          "type": "string",
+          "description": "#RRGGBB with 2:1 contrast against white.",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "brandColorDark": {
+          "type": "string",
+          "description": "#RRGGBB with 2:1 contrast against #212121.",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "composerIcon": {
+          "$ref": "#/$defs/url"
+        },
+        "logoDark": {
+          "$ref": "#/$defs/url"
+        },
+        "demoVideo": {
+          "$ref": "#/$defs/url",
+          "description": "Reviewer-accessible video URL showing the main use cases. Required for review."
+        },
+        "commerce": {
+          "type": "boolean"
+        },
+        "commerceDescription": {
+          "type": "string"
+        },
+        "countries": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          }
+        },
+        "releaseNotes": {
+          "type": "string",
+          "description": "What changed in this version. Required for review."
+        },
+        "translations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "subtitle": {
+                "type": "string",
+                "maxLength": 30
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 4000
+              }
             }
           }
         }
