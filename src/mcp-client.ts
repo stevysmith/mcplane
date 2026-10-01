@@ -3,6 +3,8 @@
  * store's scanner does: plain POSTs, JSON or SSE replies, a session id if the
  * server hands one out.
  */
+import { VERSION } from './version.js';
+
 export interface RpcReply {
   status: number;
   contentType: string;
@@ -17,7 +19,7 @@ export class McpClient {
   private id = 0;
   constructor(readonly url: string, private extraHeaders: Record<string, string> = {}, private timeoutMs = 15_000) {}
 
-  async request(method: string, params?: unknown, opts: { notification?: boolean; url?: string } = {}): Promise<RpcReply> {
+  async request(method: string, params?: unknown, opts: { notification?: boolean; url?: string; headers?: Record<string, string> } = {}): Promise<RpcReply> {
     const body = opts.notification ? { jsonrpc: '2.0', method, params } : { jsonrpc: '2.0', id: ++this.id, method, params };
     const headers: Record<string, string> = {
       'content-type': 'application/json',
@@ -25,6 +27,7 @@ export class McpClient {
       'mcp-protocol-version': '2025-06-18',
       'user-agent': UA,
       ...this.extraHeaders,
+      ...opts.headers,
     };
     if (this.session) headers['mcp-session-id'] = this.session;
     const res = await fetch(opts.url ?? this.url, {
@@ -44,7 +47,7 @@ export class McpClient {
     const r = await this.request('initialize', {
       protocolVersion: '2025-06-18',
       capabilities: {},
-      clientInfo: { name: 'mcplane', version: '0.1.0' },
+      clientInfo: { name: 'mcplane', version: VERSION },
     });
     if (r.status < 300) await this.request('notifications/initialized', undefined, { notification: true }).catch(() => null);
     return r;

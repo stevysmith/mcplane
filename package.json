@@ -1,6 +1,6 @@
 {
   "name": "mcplane",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "fastlane for MCP servers: preflight against every store's rejection causes, publish where you can, prepare the rest, track every review.",
   "type": "module",
   "bin": {
@@ -8,8 +8,10 @@
   },
   "files": [
     "dist",
+    "schemas",
     "schema.json",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "engines": {
@@ -41,6 +43,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
+    "ajv": "^8.17.1",
     "zod": "^4.6.5"
   },
   "repository": {

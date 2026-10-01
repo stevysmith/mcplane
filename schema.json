@@ -26,7 +26,8 @@
         "cline",
         "lobehub",
         "awesome-mcp-servers",
-        "awesome-remote-mcp-servers"
+        "awesome-remote-mcp-servers",
+        "vercel-connect"
       ]
     },
     "url": {
@@ -80,6 +81,13 @@
             "none",
             "oauth"
           ]
+        },
+        "signIn": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/url"
+          },
+          "description": "Sign-in pages and identity-provider URLs your consent screen sends people to. Preflight GETs them, with the authorization endpoint, to find bot challenges and 403s reviewers would hit."
         }
       }
     },
@@ -124,8 +132,8 @@
       }
     },
     "icon": {
-      "$ref": "#/$defs/url",
-      "description": "A direct link to a square PNG, 512px or larger. Not a page, not a favicon."
+      "type": "string",
+      "description": "A direct link to a square PNG, 512px or larger. Not a page, not a favicon. The ChatGPT package also takes a local path, relative to mcplane.json; other stores need the link."
     },
     "prompts": {
       "type": "array",
@@ -200,22 +208,20 @@
     },
     "justifications": {
       "type": "object",
-      "description": "Your own ChatGPT hint justifications per tool name. They replace mcplane's drafts. 200 characters each.",
+      "deprecated": true,
+      "description": "Deprecated: OpenAI no longer asks for hint justifications. Still accepted; the ChatGPT pack lists them as optional notes for an appeal if review flags a hint.",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "readOnly": {
-            "type": "string",
-            "maxLength": 200
+            "type": "string"
           },
           "openWorld": {
-            "type": "string",
-            "maxLength": 200
+            "type": "string"
           },
           "destructive": {
-            "type": "string",
-            "maxLength": 200
+            "type": "string"
           }
         }
       }
@@ -263,6 +269,54 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "vercelConnect": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Vercel Connect's Submit a Service fields with no shared equivalent.",
+      "properties": {
+        "apiBase": {
+          "$ref": "#/$defs/url",
+          "description": "Base URL of a REST API your users also call, listed as a second target."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Default scopes for the OAuth method. Defaults to the discovery document's scopes_supported."
+        },
+        "apiKey": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Offer an API key connection method.",
+          "properties": {
+            "docs": {
+              "$ref": "#/$defs/url",
+              "description": "Where users create a key."
+            },
+            "header": {
+              "type": "string",
+              "description": "How the key is sent, e.g. \"x-api-key: <key>\". Defaults to Authorization: Bearer <key>."
+            }
+          }
+        }
+      }
+    },
+    "claudePlugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The Claude Code plugin that ships this server, for \"mcplane pack claude-eval\". Read from the plugin repo when left out.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The plugin's name in its plugin.json."
+        },
+        "server": {
+          "type": "string",
+          "description": "The server's key in the plugin's .mcp.json (or plugin.json mcpServers)."
         }
       }
     },
@@ -339,11 +393,31 @@
           "description": "#RRGGBB with 2:1 contrast against #212121.",
           "pattern": "^#[0-9a-fA-F]{6}$"
         },
+        "logo": {
+          "type": "string",
+          "description": "The package's logo: an image URL or a local path relative to mcplane.json. Defaults to icon."
+        },
         "composerIcon": {
-          "$ref": "#/$defs/url"
+          "type": "string",
+          "description": "An image URL or a local path. Defaults to the logo."
         },
         "logoDark": {
-          "$ref": "#/$defs/url"
+          "type": "string",
+          "description": "An image URL or a local path, for dark mode."
+        },
+        "skills": {
+          "description": "Agent Skills to bundle under skills/ in the package: a folder whose subfolders each hold a SKILL.md, or a list of skill folders. Relative to mcplane.json.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
         },
         "demoVideo": {
           "$ref": "#/$defs/url",

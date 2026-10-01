@@ -20,6 +20,7 @@ const RT_SLUG: Partial<Record<StoreId, string>> = {
   'claude-plugins': 'claude-plugins',
   cursor: 'cursor',
   muse: 'muse',
+  'vercel-connect': 'vercel-connect',
 };
 const TRACKED_FROM_GITHUB: StoreId[] = ['grok', 'docker'];
 
@@ -51,7 +52,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 /** What identifies this listing to Review Times' directory watch, so the report can close itself. */
 function listingRef(m: Manifest, store: StoreId, appId?: string): string | undefined {
   if (store === 'chatgpt') return appId;
-  if (store === 'claude-connectors' || store === 'muse') return m.server.url;
+  if (store === 'claude-connectors' || store === 'muse' || store === 'vercel-connect') return m.server.url;
   if (store === 'claude-plugins' || store === 'cursor') return m.repository;
   return undefined;
 }

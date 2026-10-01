@@ -1,16 +1,13 @@
 import { forStore } from '../draft.js';
+import { imageInfo } from '../images.js';
 import type { Check, Manifest, StoreId, Tool } from '../types.js';
 
 const get = (url: string) => fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(12_000), headers: { 'user-agent': 'mcplane' } }).catch(() => null);
 
-/** Width and height from a PNG's IHDR chunk. */
-function pngSize(buf: Uint8Array): { w: number; h: number } | null {
-  if (buf.length < 24 || buf[0] !== 0x89 || buf[1] !== 0x50) return null;
-  const v = new DataView(buf.buffer, buf.byteOffset);
-  return { w: v.getUint32(16), h: v.getUint32(20) };
-}
-
 const has = (stores: StoreId[], ...s: StoreId[]) => s.some((x) => stores.includes(x));
+const MIB = 1024 * 1024;
+/** OpenAI's limit for plugin.json's root description, which the ChatGPT package fills from the one-liner. */
+const PLUGIN_DESCRIPTION_MAX = 1024;
 
 export async function listingChecks(m: Manifest, tools: Tool[], stores: StoreId[]): Promise<Check[]> {
   const checks: Check[] = [];
@@ -18,22 +15,31 @@ export async function listingChecks(m: Manifest, tools: Tool[], stores: StoreId[
 
   // Icon
   if (!m.icon) {
-    checks.push({ id: 'listing.icon', level: 'warn', title: 'An icon URL is set', fix: 'Set "icon" to a direct PNG URL, at least 512×512. ChatGPT needs one uploaded; Claude asks for a direct .png/.svg URL when the favicon fails.' });
+    checks.push({ id: 'listing.icon', level: 'warn', title: 'An icon URL is set', fix: 'Set "icon" to a direct PNG URL, at least 512×512. ChatGPT needs one in its package; Claude asks for a direct .png/.svg URL when the favicon fails.' });
+  } else if (!/^https?:\/\//i.test(m.icon)) {
+    // A local file works for the ChatGPT package, which bundles it; every other store needs a link.
+    const others = stores.filter((s) => s !== 'chatgpt');
+    checks.push(
+      others.length
+        ? { id: 'listing.icon', level: 'warn', title: 'The icon is a URL', detail: `${m.icon} is a local file`, fix: '"mcplane pack chatgpt" bundles a local icon, but Claude and the other stores need a direct URL. Set "icon" to the URL and "chatgpt.logo" to the file.', stores: others }
+        : { id: 'listing.icon', level: 'info', title: 'The icon is a local file', detail: m.icon, fix: '"mcplane pack chatgpt" bundles it and checks its size.', stores: ['chatgpt'] },
+    );
   } else {
     const res = await get(m.icon);
     const type = res?.headers.get('content-type') ?? '';
     const buf = res?.ok ? new Uint8Array(await res.arrayBuffer()) : null;
-    const size = buf ? pngSize(buf) : null;
+    const img = buf ? imageInfo(buf) : null;
+    const size = img?.width !== undefined && img.height !== undefined ? `${img.width}×${img.height}` : '';
     if (!res?.ok) {
       checks.push({ id: 'listing.icon', level: 'fail', title: 'The icon URL loads', detail: `HTTP ${res?.status ?? 'error'}`, fix: 'Point "icon" at a URL that returns the image directly.' });
     } else if (!/\.(png|svg|jpe?g|gif|ico|webp)(\?|$)/i.test(m.icon)) {
       checks.push({ id: 'listing.icon', level: 'warn', title: 'The icon URL ends in an image extension', detail: m.icon, fix: 'Anthropic asks for an icon URL ending in .png, .svg, .jpg, .gif, .ico or .webp.', stores: ['claude-connectors'] });
-    } else if (type.includes('png') && size && (size.w < 512 || size.w !== size.h)) {
-      checks.push({ id: 'listing.icon', level: 'warn', title: 'The icon is square and at least 512 px', detail: `${size.w}×${size.h}`, fix: 'Use a square PNG of 512×512 or more; ChatGPT’s directory icon must be at least 256, and a 512 master covers every store.' });
+    } else if (img?.format && size && (img.width !== img.height || (img.format !== 'svg' && img.width! < 512))) {
+      checks.push({ id: 'listing.icon', level: 'warn', title: 'The icon is square and at least 512 px', detail: `${img.format.toUpperCase()}, ${size}`, fix: 'Use a square image of 512×512 or more, or a square SVG. ChatGPT’s package takes 48 to 4096 px, and a 512 master covers every store.' });
     } else {
-      checks.push({ id: 'listing.icon', level: 'pass', title: 'The icon loads', detail: `${type}${size ? `, ${size.w}×${size.h}` : ''}, ${buf ? Math.round(buf.length / 1024) : '?'} KB` });
-      if (buf && buf.length > 10 * 1024 && has(stores, 'chatgpt')) {
-        checks.push({ id: 'listing.icon-small', level: 'warn', title: 'A small icon is available for ChatGPT’s dialogs', detail: `${Math.round(buf.length / 1024)} KB`, fix: 'ChatGPT’s icon upload in developer mode caps at 10 KB. Export an 8-bit PNG (pngquant or `magick in.png PNG8:out.png`).', stores: ['chatgpt'] });
+      checks.push({ id: 'listing.icon', level: 'pass', title: 'The icon loads', detail: [img?.format?.toUpperCase() ?? type, size, buf && `${Math.round(buf.length / 1024)} KB`].filter(Boolean).join(', ') });
+      if (buf && buf.length > 5 * MIB && has(stores, 'chatgpt')) {
+        checks.push({ id: 'listing.icon-size', level: 'fail', title: 'The icon fits ChatGPT’s package (5 MiB)', detail: `${(buf.length / MIB).toFixed(1)} MiB`, fix: 'Images in the plugin ZIP are capped at 5 MiB. Export a smaller PNG.', stores: ['chatgpt'] });
       }
     }
   }
@@ -110,6 +116,10 @@ export async function listingChecks(m: Manifest, tools: Tool[], stores: StoreId[
       checks.push({ id: 'listing.prompts', level: 'pass', title: 'Starter prompts are short, unique and free of @mentions', stores: ['chatgpt'] });
     }
     len(g.description, 4000, 'listing.chatgpt-description', 'Long description for ChatGPT', ['chatgpt']);
+    // plugin.json's root description comes from the one-liner (or subtitle, or title).
+    const root = g.oneLiner ?? g.subtitle ?? g.title;
+    if (root && root.length > PLUGIN_DESCRIPTION_MAX)
+      checks.push({ id: 'listing.plugin-description', level: 'fail', title: `Plugin description fits (${PLUGIN_DESCRIPTION_MAX} characters)`, detail: `${root.length} characters (plugin_description_too_long)`, fix: 'The ChatGPT package uses your one-liner as plugin.json’s description. Shorten it, or give ChatGPT its own in listing.chatgpt.oneLiner.', stores: ['chatgpt'] });
     // The plugin package requires all four listing URLs for MCP review.
     const missing = (['website', 'support', 'privacy', 'terms'] as const).filter((k) => !g.links?.[k]?.startsWith('https://'));
     checks.push(

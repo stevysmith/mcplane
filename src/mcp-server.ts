@@ -14,7 +14,7 @@ import { fleet } from './fleet.js';
 import { tryLinks } from './extras.js';
 import { listings } from './listings.js';
 import { MANIFEST_FILE, draftManifest, loadManifest, storesOf } from './manifest.js';
-import { chatgptPack, claudePack, directoriesPack, simplePack, writePack } from './packs.js';
+import { PACKS, packFor, writePack } from './packs.js';
 import { preflight } from './preflight.js';
 import { publish } from './publish.js';
 import { recordDecision, recordSubmitted, status } from './submissions.js';
@@ -38,15 +38,21 @@ export async function serve(): Promise<void> {
     {
       title: 'Check an MCP server against store review rules',
       description:
-        'Checks a live MCP server, its listing links, icon and plugin repo against the known rejection causes of ChatGPT, Claude, Cursor, Grok, Muse and the MCP Registry. Returns each check with pass, warn, fail or skip, what was found and how to fix it, plus reminders that no script can verify. Uses mcplane.json, or a url for a server without one.',
-      inputSchema: { project: PROJECT, url: z.string().url().optional(), stores: z.array(STORE).optional() },
+        'Checks a live MCP server, its listing links, icon and plugin repo against the known rejection causes of ChatGPT, Claude, Cursor, Grok, Muse, Vercel Connect and the MCP Registry, plus its ARD manifest and its readiness for MCP 2026-07-28 (checks whose id starts with "readiness."; never blocking). For OAuth servers it also walks the sign-in chain with plain GETs (the authorization endpoint, then the sign-in pages in sign_in or server.signIn) looking for bot challenges and 403s. Returns each check with pass, warn, fail, skip or info (a note that never blocks), what was found and how to fix it, plus reminders that no script can verify. Uses mcplane.json, or a url for a server without one.',
+      inputSchema: {
+        project: PROJECT,
+        url: z.string().url().optional(),
+        stores: z.array(STORE).optional(),
+        sign_in: z.array(z.string().url()).optional().describe('Sign-in pages or identity-provider URLs the consent screen uses, added to server.signIn.'),
+      },
       annotations: { title: 'Preflight', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    async ({ project, url, stores }) => {
+    async ({ project, url, stores, sign_in }) => {
       const m = url ? await draftManifest(url) : await loadManifest(dirOf(project));
+      if (sign_in?.length) m.server.signIn = [...(m.server.signIn ?? []), ...sign_in];
       const r = await preflight(m, { stores, token: token() });
       const fails = r.checks.filter((c) => c.level === 'fail').length;
-      return reply(r, `${fails} blocking, ${r.checks.filter((c) => c.level === 'warn').length} to review, ${r.checks.filter((c) => c.level === 'pass').length} passed.`);
+      return reply(r, `${fails} blocking, ${r.checks.filter((c) => c.level === 'warn').length} to review, ${r.checks.filter((c) => c.level === 'info').length} notes, ${r.checks.filter((c) => c.level === 'pass').length} passed.`);
     },
   );
 
@@ -71,13 +77,17 @@ export async function serve(): Promise<void> {
     {
       title: 'Write a submission pack',
       description:
-        'Writes everything a store’s submission form asks for into .mcplane/packs: the plugin ZIP ChatGPT’s portal uploads (listing, icons, 5+3 tests, release notes) with a checklist for the dashboard-only steps, markdown packs for claude-connectors, cursor and muse, and one sheet for the form-only directories. Returns the files written and any problems to fix first.',
-      inputSchema: { project: PROJECT, store: z.enum(['chatgpt', 'claude-connectors', 'cursor', 'muse', 'directories']) },
+        'Writes everything a store’s submission form asks for into .mcplane/packs: the plugin ZIP ChatGPT’s portal uploads (listing, icons, 5+3 tests, release notes, and the skills in chatgpt.skills) with a checklist for the dashboard-only steps, markdown packs for claude-connectors, vercel-connect (Submit a Service values, OAuth method and token test), cursor and muse, and one sheet for the form-only directories. Also ard (a manifest for /.well-known/ard.json) and claude-eval (a "claude plugin eval" suite from the review tests). Returns the files written and any problems to fix first.',
+      inputSchema: {
+        project: PROJECT,
+        store: z.enum(PACKS),
+        tools_file: z.string().optional().describe('A saved tools/list result, relative to the project folder, for a server behind sign-in.'),
+      },
       annotations: { title: 'Pack', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    async ({ project, store }) => {
+    async ({ project, store, tools_file }) => {
       const m = await loadManifest(dirOf(project));
-      const pack = store === 'directories' ? directoriesPack(m) : store === 'chatgpt' ? await chatgptPack(m, token()) : store === 'claude-connectors' ? await claudePack(m, token()) : await simplePack(m, store);
+      const pack = await packFor(m, store, { token: token(), tools: tools_file, dir: dirOf(project) });
       const files = await writePack(pack, dirOf(project));
       return reply({ files, problems: pack.problems, todo: pack.todo });
     },
@@ -164,7 +174,7 @@ export async function serve(): Promise<void> {
     {
       title: 'Where you’re listed, and whether it matches',
       description:
-        'Reads every store with a public record (MCP Registry, Claude connectors and plugins, Cursor, Grok, Glama, the awesome lists, Docker) and returns, per store: listed, missing or unknown, plus differences from your live server and mcplane.json, such as tools missing from Claude’s synced inventory or a plugin pinned to an old commit.',
+        'Reads every store with a public record (MCP Registry, Claude connectors and plugins, Cursor, Grok, Glama, the awesome lists, Docker, Vercel Connect) and returns, per store: listed, missing or unknown, plus differences from your live server and mcplane.json, such as tools missing from Claude’s synced inventory or a plugin pinned to an old commit.',
       inputSchema: { project: PROJECT, stores: z.array(STORE).optional() },
       annotations: { title: 'Listings', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -226,7 +236,6 @@ export async function serve(): Promise<void> {
    - title; subtitle (30 characters max, no "AI" filler); oneLiner (one plain sentence: what it does); description (what it does, who it's for, what it can't do).
    - category (a ChatGPT category such as DEVELOPER_TOOLS or PRODUCTIVITY), stores (where it should list), repository if there's a public plugin repo, version.
    - tests: exactly 5 positive cases (scenario, a realistic user prompt, the tools it should call, the expected result) and 3 negative cases (prompts that should NOT trigger this app). Base them on real tool behaviour, not hopes.
-   - justifications, only where the drafts would be wrong: one factual sentence per hint, under 200 characters.
    Write in plain language. No marketing words, no instructions to the model, no pricing or upgrade copy.
 3. Call preflight. Fix what you can in the code (annotations, titles, output schemas, descriptions) and list what needs me (legal pages, icon, OAuth setup).
 4. Show me the final listing text and the tests before anything is submitted.`),

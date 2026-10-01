@@ -7,7 +7,7 @@ import { preflight } from './preflight.js';
 import { printPreflight } from './report.js';
 import { STORE_NAMES, type Manifest, type StoreId } from './types.js';
 import { recordDecision, recordSubmitted, status } from './submissions.js';
-import { chatgptPack, claudePack, directoriesPack, simplePack, writePack } from './packs.js';
+import { PACKS, packFor, writePack } from './packs.js';
 import { drift, printDrift, takeSnapshot } from './drift.js';
 import { publish } from './publish.js';
 import { lanes, runLane, tryLinks } from './extras.js';
@@ -24,18 +24,30 @@ Usage
       --verbose                       List passing checks too
       --register                      Also test OAuth client registration (writes test clients)
       --token <token>                 Access token for servers behind sign-in (or MCPLANE_TOKEN)
+      --sign-in <url>                 A sign-in page your consent screen uses, checked for bot walls (repeatable)
   mcplane submitted <store>           Record a submission and log it to Review Times
       --date YYYY-MM-DD --kind new|update|resubmission --version x.y.z
       --app-id asdk_app_...           ChatGPT: your app id, so its draft date is checked
       --private                       Keep it local; don't log to Review Times
   mcplane decided <store> approved|rejected|withdrawn [--date YYYY-MM-DD]
   mcplane status                      Every submission, how long it's waited, and the store's typical wait
-  mcplane pack <store>                Write a submission pack to .mcplane/packs (chatgpt, claude-connectors, cursor, muse, directories)
+  mcplane pack <store>                Write a submission pack to .mcplane/packs (chatgpt, claude-connectors, vercel-connect, cursor, muse, directories)
+      pack ard                        An ARD manifest for /.well-known/ard.json
+      pack claude-eval                A "claude plugin eval" suite from your review tests
+      --tools <file>                  A saved tools/list result, for servers behind sign-in (or pass --token)
   mcplane drift [--store <id>]...     What changed since each store saw your server, and what each needs
       --ci                            Exit 1 when a store needs a new version or an edit
   mcplane baseline <store> [--version x.y.z]   Record a listing that's already live as the drift baseline
   mcplane publish <store> [--yes]     Publish where the store allows it (mcp-registry, grok); dry run without --yes
   mcplane try                         Install links for every client, for you and your testers
+  mcplane demo                        Record the review demo video in ChatGPT desktop from your positive tests (macOS)
+      --only 1,3                      Which tests to record (default: all)
+      --out <file>                    Where to write it (default: .mcplane/packs/chatgpt/demo.mp4)
+      --approve                       Click "Allow once" when ChatGPT asks to run a tool
+      --plugin <name>                 The plugin to @mention, as ChatGPT names it (default: title)
+      --work                          Record in Work mode instead of Chat
+      --keep-open                     Leave ChatGPT running afterwards
+      --yes                           Don't ask before driving ChatGPT
   mcplane listings [--store <id>]...  Where you're listed, and whether what went live matches your server (--ci)
   mcplane lanes                       List lanes; run one with "mcplane <lane>" (built in: check, watch, release)
   mcplane fleet [--root <dir>]        Every project under a folder: blockers, store updates needed, reviews waiting
@@ -66,6 +78,8 @@ async function main() {
       verbose: { type: 'boolean' },
       register: { type: 'boolean' },
       token: { type: 'string' },
+      tools: { type: 'string' },
+      'sign-in': { type: 'string', multiple: true },
       date: { type: 'string' },
       kind: { type: 'string' },
       version: { type: 'string' },
@@ -75,6 +89,13 @@ async function main() {
       root: { type: 'string' },
       quick: { type: 'boolean' },
       yes: { type: 'boolean' },
+      only: { type: 'string' },
+      out: { type: 'string' },
+      approve: { type: 'boolean' },
+      plugin: { type: 'string' },
+      work: { type: 'boolean' },
+      'keep-open': { type: 'boolean' },
+      port: { type: 'string' },
     },
     allowPositionals: true,
   });
@@ -110,6 +131,7 @@ async function main() {
 
   if (cmd === 'preflight') {
     const m = values.url ? await draftManifest(values.url) : await loadManifest();
+    if (values['sign-in']?.length) m.server.signIn = [...(m.server.signIn ?? []), ...values['sign-in']];
     const stores = (values.store ?? []) as StoreId[];
     for (const s of stores) if (!(s in STORE_NAMES)) throw new Error(`Unknown store "${s}". Stores: ${Object.keys(STORE_NAMES).join(', ')}`);
     const r = await preflight(m, { stores, register: values.register, token: values.token ?? process.env.MCPLANE_TOKEN });
@@ -140,11 +162,12 @@ async function main() {
 
   if (cmd === 'pack') {
     const m = await loadManifest();
-    const store = positionals[0] === 'directories' ? null : asStore(positionals[0]);
-    const token = values.token ?? process.env.MCPLANE_TOKEN;
-    const pack = !store ? directoriesPack(m) : store === 'chatgpt' ? await chatgptPack(m, token) : store === 'claude-connectors' ? await claudePack(m, token) : await simplePack(m, store);
+    const name = positionals[0];
+    if (!(PACKS as readonly string[]).includes(name)) asStore(name);
+    const pack = await packFor(m, name, { token: values.token ?? process.env.MCPLANE_TOKEN, tools: values.tools });
     const written = await writePack(pack);
-    console.log(`Wrote ${written.join(', ')}`);
+    const dirs = [...new Set(written.map((w) => w.split('/').slice(0, 3).join('/')))];
+    console.log(written.length > 6 ? `Wrote ${written.length} files under ${dirs.join(', ')}/` : `Wrote ${written.join(', ')}`);
     if (pack.problems.length) {
       console.log('\nFix before submitting:');
       for (const p of pack.problems) console.log(`  ✗ ${p}`);
@@ -217,6 +240,28 @@ async function main() {
   if (cmd === 'try') {
     const m = await loadManifest();
     for (const t of tryLinks(m)) console.log(`${t.client.padEnd(22)} ${t.how}`);
+    return;
+  }
+
+  if (cmd === 'demo') {
+    const m = await loadManifest();
+    if (values.port && !/^\d+$/.test(values.port)) throw new Error('--port takes a port number, e.g. 9333.');
+    const { demo } = await import('./demo.js');
+    const r = await demo(m, {
+      only: values.only,
+      out: values.out,
+      approve: values.approve,
+      plugin: values.plugin,
+      work: values.work,
+      keepOpen: values['keep-open'],
+      yes: values.yes,
+      port: values.port ? Number(values.port) : undefined,
+      token: values.token ?? process.env.MCPLANE_TOKEN,
+    });
+    const mins = Math.floor(r.seconds / 60);
+    console.log(`\nWrote ${r.out} (${r.scenes} scene${r.scenes === 1 ? '' : 's'}, ${mins ? `${mins}m ` : ''}${Math.round(r.seconds % 60)}s).`);
+    for (const n of r.notes) console.log(`  ! ${n}`);
+    console.log('Watch it, upload it where a reviewer can open it without signing in, set chatgpt.demoVideo to that URL, then run "mcplane pack chatgpt".');
     return;
   }
 

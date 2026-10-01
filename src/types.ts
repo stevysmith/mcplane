@@ -1,4 +1,5 @@
-export type Level = 'pass' | 'warn' | 'fail' | 'skip';
+/** info: optional or advisory. It never blocks and isn't counted as something to review. */
+export type Level = 'pass' | 'warn' | 'fail' | 'skip' | 'info';
 
 export interface Check {
   id: string;
@@ -26,7 +27,8 @@ export type StoreId =
   | 'cline'
   | 'lobehub'
   | 'awesome-mcp-servers'
-  | 'awesome-remote-mcp-servers';
+  | 'awesome-remote-mcp-servers'
+  | 'vercel-connect';
 
 export const STORE_NAMES: Record<StoreId, string> = {
   'mcp-registry': 'Official MCP Registry',
@@ -43,6 +45,7 @@ export const STORE_NAMES: Record<StoreId, string> = {
   lobehub: 'LobeHub Market',
   'awesome-mcp-servers': 'awesome-mcp-servers',
   'awesome-remote-mcp-servers': 'awesome-remote-mcp-servers',
+  'vercel-connect': 'Vercel Connect',
 };
 
 export interface Manifest {
@@ -53,10 +56,19 @@ export interface Manifest {
   oneLiner?: string;
   description?: string;
   category?: string;
-  server: { url: string; auth?: 'none' | 'oauth' };
+  server: {
+    url: string;
+    auth?: 'none' | 'oauth';
+    /**
+     * Sign-in pages and identity-provider URLs your consent screen sends people to (e.g. https://accounts.example.com/sign-in).
+     * Preflight GETs them with the authorization endpoint to find bot challenges and 403s reviewers would hit.
+     */
+    signIn?: string[];
+  };
   repository?: string;
   author?: { name: string; url?: string };
   links?: { website?: string; support?: string; privacy?: string; terms?: string; docs?: string };
+  /** A direct image URL. The ChatGPT package also takes a local path, relative to mcplane.json. */
   icon?: string;
   prompts?: string[];
   stores?: StoreId[];
@@ -67,7 +79,10 @@ export interface Manifest {
     positive?: { scenario: string; prompt: string; tools: string[]; expected: string }[];
     negative?: { scenario: string; prompt: string }[];
   };
-  /** Hand-written ChatGPT hint justifications, per tool; they replace mcplane's drafts. */
+  /**
+   * @deprecated OpenAI no longer asks for hint justifications. Still accepted: the ChatGPT pack lists them
+   * as optional notes for an appeal if review flags a hint.
+   */
   justifications?: Record<string, { readOnly?: string; openWorld?: string; destructive?: string }>;
   /** Your server's version, for the MCP Registry and your own records. */
   version?: string;
@@ -82,9 +97,15 @@ export interface Manifest {
     /** #RRGGBB with 2:1 contrast against white; the dark one against #212121. */
     brandColor?: string;
     brandColorDark?: string;
-    /** Direct image URLs; default to "icon". */
+    /** Image URLs or local paths (relative to mcplane.json), bundled into the package. logo and composerIcon default to "icon". */
+    logo?: string;
     composerIcon?: string;
     logoDark?: string;
+    /**
+     * Agent Skills to bundle under skills/ in the package: a folder whose subfolders each hold a SKILL.md,
+     * or a list of skill folders. Paths are relative to mcplane.json.
+     */
+    skills?: string | string[];
     /** Reviewer-accessible video URL showing the main use cases (required for review). */
     demoVideo?: string;
     commerce?: boolean;
@@ -97,6 +118,17 @@ export interface Manifest {
   };
   /** Grok marketplace entry overrides. */
   grok?: { description?: string; category?: string; keywords?: string[]; domains?: string[] };
+  /** Vercel Connect's Submit a Service form fields with no shared equivalent. */
+  vercelConnect?: {
+    /** Base URL of a REST API your users also call, listed as a second target. */
+    apiBase?: string;
+    /** Default scopes for the OAuth method. Defaults to the discovery document's scopes_supported. */
+    scopes?: string[];
+    /** Offer an API key connection method: where users create a key, and the header it's sent in. */
+    apiKey?: { docs?: string; header?: string };
+  };
+  /** The Claude Code plugin that ships this server, for "mcplane pack claude-eval". Read from the plugin repo when left out. */
+  claudePlugin?: { name?: string; server?: string };
   /** Named workflows, run with "mcplane <lane>": each step is a command line without "mcplane". */
   lanes?: Record<string, string[]>;
   /** How reviewers get in, for servers behind sign-in. Never put the password here; say where it lives. */

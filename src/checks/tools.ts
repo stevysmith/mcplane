@@ -22,6 +22,20 @@ const UPSELL = /\b(upgrade (to|your|now)|pro plan|premium (plan|tier|account|sub
 /** Inputs that suggest a write authorised only by a secret passed through the chat. */
 const BEARER_INPUT = /^(token|edit_token|update_token|secret|access_key|api_key|password)$/i;
 
+/** OpenAI's destructive effects ("deletion, overwriting, cancellation, access revocation") in the words a tool uses about itself. */
+const DESTRUCTIVE = /\b(overwrit\w*|replac\w*|revo[kc]\w*|delet\w*|cancel\w*|archiv\w*|expir\w*|passwords?|gat(?:e|es|ed|ing))\b/gi;
+const NEGATED = /\b(never|not|no|without|nothing|refuses?|cannot|can['’]t|doesn['’]t|don['’]t|won['’]t)\b(\s+\w+){0,2}\s*$/i;
+
+/** The destructive words in a tool's name, title and description, skipping negated ones ("never overwrites"). */
+function destructiveWords(text: string): string[] {
+  const found = new Set<string>();
+  for (const m of text.matchAll(DESTRUCTIVE)) {
+    if (NEGATED.test(text.slice(Math.max(0, m.index - 40), m.index))) continue;
+    found.add(m[1].toLowerCase());
+  }
+  return [...found];
+}
+
 export function toolChecks(tools: Tool[]): Check[] {
   if (!tools.length) return [];
   const checks: Check[] = [];
@@ -41,7 +55,7 @@ export function toolChecks(tools: Tool[]): Check[] {
           level: 'fail',
           title: 'Safety annotations are explicit on every tool',
           detail: missing.join(', '),
-          fix: 'Set readOnlyHint, destructiveHint and openWorldHint to true or false on every tool. ChatGPT asks you to justify each explicit value and flags missing ones; Claude checks them against your read/write answer.',
+          fix: 'Set readOnlyHint, destructiveHint and openWorldHint to true or false on every tool. ChatGPT requires explicit values and its automated review checks them against what each tool does (justifications are no longer required; appeal if it flags one you believe is right). Claude checks them against your read/write answer.',
           stores: ['chatgpt', 'claude-connectors'],
         }
       : { id: 'tools.hints', level: 'pass', title: 'Safety annotations are explicit on every tool' },
@@ -92,8 +106,8 @@ export function toolChecks(tools: Tool[]): Check[] {
       : { id: 'tools.bearer-writes', level: 'pass', title: 'Writes are bound to an owner, not a token in the chat' },
   );
 
-  // OpenAI: openWorldHint is true for tools that reach the public internet or open-ended external entities,
-  // read-only ones like web search included, and for writes that post, send, publish, push or submit.
+  // OpenAI: openWorldHint is true for public or open-ended entities, read-only web search and arbitrary destinations
+  // included; a tool confined to a bounded private account, workspace or catalog may be false. Connectivity alone doesn't decide it.
   const openWorld = tools.filter(
     (t) =>
       t.annotations?.openWorldHint === false &&
@@ -105,14 +119,14 @@ export function toolChecks(tools: Tool[]): Check[] {
           id: 'tools.open-world',
           level: 'warn',
           title: 'openWorldHint matches what the tool does',
-          detail: `${openWorld.map((t) => t.name).join(', ')}: openWorldHint is false, but the tool seems to send, post or publish`,
-          fix: 'OpenAI: set openWorldHint to true "if the tool accesses the public internet or open-ended external entities", including read-only tools such as web search and tools that post, send messages to external recipients, publish, push code or submit forms. False only when it is limited to a bounded private account or workspace.',
+          detail: `${openWorld.map((t) => t.name).join(', ')}: openWorldHint is false, but the tool seems to reach public or open-ended destinations (sending, posting, publishing or searching the web)`,
+          fix: 'OpenAI: use true "for public or open-ended entities, including read-only web search and arbitrary destinations". A tool "confined to a bounded private account, workspace, or catalog may use false, even when externally hosted", and "connectivity alone does not determine this value". If it only reaches the user’s own account, false is right.',
           stores: ['chatgpt'],
         }
       : { id: 'tools.open-world', level: 'pass', title: 'openWorldHint matches what the tool does' },
   );
 
-  // OpenAI: destructiveHint is true for irreversible outcomes, "sending messages or transactions you can't undo" included.
+  // OpenAI: for writes, destructiveHint is true for destructive or irreversible effects, "irreversible sends or transactions" included.
   const sends = tools.filter((t) => t.annotations?.destructiveHint === false && t.annotations?.readOnlyHint !== true && /\b(sends?|sent|e-?mail(s|ed)?|sms|texts?|messag(es?|ed)|notif(y|ies|ied)|transfers?|pays?|payments?)\b/i.test(t.description ?? ''));
   if (sends.length) {
     checks.push({
@@ -120,7 +134,25 @@ export function toolChecks(tools: Tool[]): Check[] {
       level: 'warn',
       title: 'destructiveHint covers messages that can’t be unsent',
       detail: `${sends.map((t) => t.name).join(', ')}: destructiveHint is false, but the tool seems to send something`,
-      fix: 'OpenAI sets destructiveHint to true for tools that can cause irreversible outcomes, "sending messages or transactions you can\'t undo" included, even through default parameters. If a user can\'t take it back, set it to true and say in the justification what safeguards exist (confirmation, scoping).',
+      fix: 'OpenAI: for writes, use true "for potentially destructive or irreversible effects, such as deletion, overwriting, cancellation, access revocation, or irreversible sends or transactions", and false "only for additive writes without destructive or irreversible effects". A message can’t be unsent, so set it to true, and ask for confirmation before it goes.',
+      stores: ['chatgpt'],
+    });
+  }
+
+  // The same definition covers overwriting, revoking access and deleting; an undo doesn't change that.
+  // Conservative: explicit write tools whose own words say so, negated mentions ("never overwrites") excluded.
+  const destroys = tools.flatMap((t) => {
+    if (t.annotations?.readOnlyHint !== false || t.annotations?.destructiveHint !== false) return [];
+    const words = destructiveWords(`${t.name.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')} ${t.title ?? ''} ${t.description ?? ''}`);
+    return words.length ? [`${t.name} (${words.join(', ')})`] : [];
+  });
+  if (destroys.length) {
+    checks.push({
+      id: 'tools.destructive-overwrite',
+      level: 'warn',
+      title: 'destructiveHint covers overwriting, revoking and deleting',
+      detail: `${destroys.join('; ')}: destructiveHint is false, but the tool seems to overwrite, revoke access or delete`,
+      fix: 'OpenAI: for writes, use true "for potentially destructive or irreversible effects, such as deletion, overwriting, cancellation, access revocation, or irreversible sends or transactions". "Being able to undo an action does not, by itself, justify setting destructiveHint to false." If the tool only adds, keep false, and appeal if review flags it.',
       stores: ['chatgpt'],
     });
   }

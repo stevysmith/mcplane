@@ -123,6 +123,53 @@ async function docker(m: Manifest): Promise<Listing> {
   return { store: 'docker', state: code === 200 ? 'listed' : code === 404 ? 'missing' : 'unknown', issues: [] };
 }
 
+export interface ConnectEntry {
+  slug: string;
+  name: string;
+  description: string;
+  /** Managed, OAuth, MCP, API Key, Beta. */
+  labels: string[];
+  /** "Experimental. This connector provider has not been verified by Vercel." */
+  experimental: boolean;
+}
+
+const CONNECT_LABELS = ['Managed', 'OAuth', 'MCP', 'API Key', 'Beta'];
+
+/**
+ * Vercel's directory has no feed, but serves an agent-readable copy of the page at /connect/browse.md:
+ * each service is **Name** and a description, its labels one per line, then [Learn more](/connect/<slug>).
+ */
+export function parseConnectDirectory(md: string): ConnectEntry[] {
+  const parts = md.split(/\[Learn more\]\(\/connect\/([a-z0-9-]+)\)/);
+  const out: ConnectEntry[] = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const name = [...parts[i].matchAll(/\*\*([^*\n]+)\*\*/g)].pop();
+    if (!name) continue;
+    const lines = parts[i]
+      .slice(name.index! + name[0].length)
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const text = lines.filter((l) => !CONNECT_LABELS.includes(l)).join(' ');
+    const experimental = /^Experimental\./.test(text);
+    out.push({ slug: parts[i + 1], name: name[1].trim(), description: text.replace(/^Experimental\.[^.]*\./, '').trim(), labels: lines.filter((l) => CONNECT_LABELS.includes(l)), experimental });
+  }
+  return out;
+}
+
+async function vercelConnect(m: Manifest): Promise<Listing> {
+  m = forStore(m, 'vercel-connect');
+  const browse = 'https://vercel.com/connect/browse';
+  const entries = parseConnectDirectory((await getText(`${browse}.md`)) ?? '');
+  // It's a page, not an API: if it stops parsing, say so rather than report "missing".
+  if (entries.length < 100) return { store: 'vercel-connect', state: 'unknown', issues: [], note: `Couldn't read Vercel's directory. Check your listing at ${browse}.` };
+  const slug = m.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const hit = entries.find((e) => e.slug === m.name || e.slug === slug || e.name.toLowerCase() === m.title.toLowerCase());
+  if (!hit) return { store: 'vercel-connect', state: 'missing', issues: [], note: `Not among its ${entries.length} services, read from the agent-readable copy of ${browse}.` };
+  const note = [hit.labels.join(', '), hit.experimental && 'marked Experimental: not verified by Vercel'].filter(Boolean).join('; ');
+  return { store: 'vercel-connect', state: 'listed', url: `https://vercel.com/connect/${hit.slug}`, issues: [], note: note || undefined };
+}
+
 export function printListings(rows: Listing[]): void {
   const mark = { listed: '✓', missing: '·', unknown: '?' } as const;
   for (const r of rows) {
@@ -155,6 +202,7 @@ export async function listings(m: Manifest, stores: StoreId[], opts: { token?: s
     if (s === 'awesome-mcp-servers') return awesome(m, s, 'punkpeye/awesome-mcp-servers');
     if (s === 'awesome-remote-mcp-servers') return awesome(m, s, 'punkpeye/awesome-remote-mcp-servers');
     if (s === 'docker') return docker(m);
+    if (s === 'vercel-connect') return vercelConnect(m);
     return Promise.resolve({ store: s, state: 'unknown' as const, issues: [], note: MANUAL[s] });
   });
   return Promise.all(jobs);

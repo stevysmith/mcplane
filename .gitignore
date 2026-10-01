@@ -2,3 +2,5 @@ node_modules
 dist
 .mcplane
 .mcplane-scan
+*.mp4
+ideas/

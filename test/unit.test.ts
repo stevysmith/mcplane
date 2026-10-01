@@ -51,18 +51,35 @@ test('diffTools reports added, removed and changed hints', () => {
   assert.deepEqual(d.changed, [{ tool: 'report', fields: ['openWorldHint false → true'] }]);
 });
 
-test('thirdPerson conjugates the opening verb only', () => {
-  assert.equal(packs.thirdPerson('Add a report'), 'adds a report');
-  assert.equal(packs.thirdPerson('Search the catalog'), 'searches the catalog');
-  assert.equal(packs.thirdPerson('Copy a file'), 'copies a file');
-  assert.equal(packs.thirdPerson('The current weather'), null);
+test('toolChecks warns when a write that overwrites, revokes or deletes says destructiveHint false', () => {
+  const tools: Tool[] = [
+    { name: 'set_password', title: 'Set passcode', description: 'Set or clear a viewer passcode on a page.', annotations: hints(false, false), outputSchema: {} },
+    { name: 'setExpiry', title: 'Set expiry', description: 'Choose when a page stops loading.', annotations: hints(false, false), outputSchema: {} },
+    { name: 'update_page', title: 'Update page', description: 'Overwrites the page with new HTML.', annotations: hints(false, false), outputSchema: {} },
+  ];
+  const c = toolChecks(tools).find((x) => x.id === 'tools.destructive-overwrite');
+  assert.equal(c?.level, 'warn');
+  assert.match(c!.detail!, /set_password \(password\)/);
+  assert.match(c!.detail!, /setExpiry \(expiry\)/);
+  assert.match(c!.detail!, /update_page \(overwrites\)/);
 });
 
-test('justifications stay under ChatGPT’s 200 characters and prefer your own', () => {
-  const t: Tool = { name: 'x', description: `Publish ${'a very long description '.repeat(20)}.`, annotations: hints(false, true) };
-  const j = packs.justify(t, 'Acme');
-  for (const v of Object.values(j)) assert.ok(v.length <= 200, v);
-  assert.equal(packs.justify(t, 'Acme', { openWorld: 'Mine.' }).open_world_justification, 'Mine.');
+test('the destructive warning skips additive writes, negations, read-only and already-destructive tools', () => {
+  const tools: Tool[] = [
+    { name: 'add_report', title: 'Add report', description: 'Adds a new report. It never overwrites or deletes existing reports.', annotations: hints(false, false), outputSchema: {} },
+    { name: 'init', title: 'Init', description: 'Writes a starting config file. Refuses to overwrite an existing file.', annotations: hints(false, false), outputSchema: {} },
+    { name: 'list_gateways', title: 'List gateways', description: 'Lists payment gateways, including archived ones.', annotations: hints(true, false), outputSchema: {} },
+    { name: 'delete_page', title: 'Delete page', description: 'Deletes a page.', annotations: hints(false, false, true), outputSchema: {} },
+    { name: 'create_gateway', title: 'Create gateway', description: 'Creates a webhook gateway.', annotations: hints(false, false), outputSchema: {} },
+  ];
+  assert.equal(toolChecks(tools).find((x) => x.id === 'tools.destructive-overwrite'), undefined);
+});
+
+test('justifications become optional appeal notes for tools the server still has', () => {
+  const tools: Tool[] = [{ name: 'publish', annotations: hints(false, true, true) }];
+  const notes = packs.appealNotes({ ...m, justifications: { publish: { openWorld: 'Posts to a public page.' }, gone: { readOnly: 'Old tool.' } } }, tools);
+  assert.equal(notes, '### publish\n- openWorldHint true: Posts to a public page.');
+  assert.equal(packs.appealNotes(m, tools), '');
 });
 
 test('registry name and description', () => {

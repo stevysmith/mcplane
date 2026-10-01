@@ -4,6 +4,7 @@
  * happens with --register.
  */
 import type { Check } from '../types.js';
+import { VERSION } from '../version.js';
 
 const REDIRECTS = {
   chatgpt: ['https://chatgpt.com/connector_platform_oauth_redirect', 'https://platform.openai.com/apps-manage/oauth'],
@@ -24,7 +25,7 @@ export async function authChecks(url: string, opts: { register?: boolean } = {})
   const bare = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'user-agent': 'mcplane' },
-    body: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"mcplane","version":"0.1.0"}}}',
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'mcplane', version: VERSION } } }),
   }).catch(() => null);
   const www = bare?.headers.get('www-authenticate') ?? '';
   if (bare?.status === 401 && /resource_metadata=/i.test(www)) {

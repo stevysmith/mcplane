@@ -53,6 +53,7 @@ One file in the repo, the equivalent of fastlane's metadata folder.
 | `mcplane publish <store>` | Publishes where the store allows it (registry CLI, GitHub pull requests); dry run by default |
 | `mcplane submitted <store> [--date]` | Records a submission you made by hand; logs it to Review Times |
 | `mcplane status` | Every store: submitted when, waiting how long, and the store's typical wait from Review Times |
+| `mcplane demo` | Records ChatGPT's review video: drives ChatGPT desktop (macOS) over the DevTools protocol, one scene per positive test, captions and a title card via ffmpeg |
 
 ## Stores (v0.1)
 
@@ -80,7 +81,7 @@ Server
 - DNS: the HTTPS record doesn't advertise ECH (TLS-inspecting review proxies reset it; three ChatGPT rejections traced to this).
 
 Tools
-- Every tool has a `title` and explicit `readOnlyHint`, `destructiveHint`, `openWorldHint` (OpenAI asks for each to be justified; Anthropic requires title + hints).
+- Every tool has a `title` and explicit `readOnlyHint`, `destructiveHint`, `openWorldHint` (OpenAI requires explicit true/false and checks them automatically, no justification needed; Anthropic requires title + hints).
 - `outputSchema` declared (OpenAI recommends; results must then carry `structuredContent`).
 - Descriptions contain no instructions about model behaviour or other tools (Anthropic's policy attestation).
 - No write tool that authorises by a bearer token passed through the chat (Anthropic rejected exactly this).
@@ -89,7 +90,7 @@ Listing
 - Icon: a direct PNG at least 512×512; `/favicon.ico` resolves (Anthropic's fallback).
 - Privacy policy reachable and covers retention and user controls (OpenAI's requirement).
 - Support is a URL, not only an email (OpenAI).
-- Length limits: subtitle ≤ 30 (ChatGPT), one-liner ≤ 200 (Claude), description ≤ 2000, annotation justifications ≤ 200 (ChatGPT truncates silently).
+- Length limits: subtitle ≤ 30 (ChatGPT), one-liner ≤ 200 (Claude), description ≤ 2000.
 - ChatGPT domain challenge (`/.well-known/openai-apps-challenge`) present when submitting there.
 
 Auth (when `auth` is `oauth`), from Stacktree's eight ChatGPT rounds
@@ -97,6 +98,7 @@ Auth (when `auth` is `oauth`), from Stacktree's eight ChatGPT rounds
 - `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` both resolve, on the MCP host itself, and agree with each other.
 - Dynamic Client Registration returns 201 for ChatGPT's redirect URIs and for native schemes (`cursor://`, `grok://`): Stacktree rejected RFC 8252 schemes and locked out every native client.
 - The authorize endpoint returns a working sign-in page, not a blank page or a marketing homepage (Stacktree's reviewer registered, then stalled at sign-in because the post-sign-in redirect was empty).
+- Plain GETs along the sign-in chain (the authorization endpoint, the sign-in page, the identity-provider hosts it loads) meet no bot challenge (`cf-mitigated: challenge`) and no 403 (a challenged sign-in host stops reviewers while every check on the MCP server passes).
 - CORS preflight on `/mcp` answers 204 with the right headers.
 
 Content policy
@@ -112,8 +114,8 @@ Plugin repositories (Claude plugins, Cursor, Grok)
 
 Portal traps (in every pack)
 - ChatGPT's "Submit for Review" gives no feedback for about 20 seconds; confirm status on the plugins list.
-- Justification fields cut at 200 characters without warning; typed input can drop characters while the draft autosaves.
-- A demo video recorded in developer mode is required, and must show the tools the tests use.
+- Typed input can drop characters while the draft autosaves.
+- A demo video recorded in developer mode is required, and must show the tools the tests use. `mcplane demo` re-records it from the positive tests.
 
 ## Build order
 

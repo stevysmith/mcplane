@@ -5,8 +5,8 @@
  * the live server and mcplane.json against it.
  *
  * Every store calls your live server, so behaviour fixes reach users on their
- * own. What doesn't: listing text, tool names in Claude's listing, hint
- * justifications, registry versions and plugins pinned to a commit.
+ * own. What doesn't: listing text, tool names in Claude's listing, registry
+ * versions and plugins pinned to a commit.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -199,7 +199,7 @@ export async function drift(m: Manifest, stores: StoreId[], opts: { token?: stri
           todo: `No resubmission needed for tools: OpenAI rescans your server, drops removed tools at once and switches new or changed ones over after they pass automated checks (the old definition stays live until then).${d.added.length || d.removed.length ? ' Update the test cases and demo video in your next version.' : ''}`,
         });
       if (hintChanges.length)
-        items.push({ store, level: 'action', what: `Hints changed: ${hintChanges.map((c) => c.tool).join(', ')}`, todo: 'Your published version’s justifications explain the old values. Put new ones in the next version ("mcplane pack chatgpt").' });
+        items.push({ store, level: 'info', what: `Hints changed: ${hintChanges.map((c) => c.tool).join(', ')}`, todo: 'Nothing to resubmit: OpenAI re-checks changed annotations automatically and no longer asks for justifications. If its review flags a value you believe is right, appeal with an explanation.' });
       if (listingChange.length) items.push({ store, level: 'action', what: `Listing text changed (${listingChange.join(', ')})`, todo: 'Listing changes need a new version, review and publication: "mcplane pack chatgpt", import it into a new version, submit.' });
     }
     if (store === 'claude-connectors') {
@@ -226,6 +226,12 @@ export async function drift(m: Manifest, stores: StoreId[], opts: { token?: stri
     }
     if (store === 'mcp-registry' && (toolChange || listingChange.length)) {
       items.push({ store, level: 'action', what: `Changed ${since}`, todo: 'Bump the version and run "mcplane publish mcp-registry".' });
+    }
+    if (store === 'vercel-connect') {
+      // Connect brokers credentials and lists services, not tools; a listing change goes back through review.
+      if (listingChange.length)
+        items.push({ store, level: 'action', what: `Listing text changed (${listingChange.join(', ')})`, todo: 'Edit and Resubmit from Submit a Service ("mcplane pack vercel-connect" has the values). A changed OAuth method or discovery document needs a new test connector and token first.' });
+      if (toolChange) items.push({ store, level: 'info', what: `Tools changed ${since}: ${summary}`, todo: 'Nothing to resubmit: Vercel Connect hands out tokens for your server and doesn’t list its tools.' });
     }
   }
   return { items, missing };
