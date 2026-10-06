@@ -1,6 +1,6 @@
 {
   "name": "mcplane",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "fastlane for MCP servers: preflight against every store's rejection causes, publish where you can, prepare the rest, track every review.",
   "type": "module",
   "bin": {

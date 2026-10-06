@@ -267,7 +267,10 @@ export function toolChecks(tools: Tool[]): Check[] {
       .map((k) => `${t.name}.${k}`),
   );
   if (sensitive.length) {
-    checks.push({ id: 'tools.sensitive-inputs', level: 'fail', title: 'Tools don’t ask for sensitive data', detail: sensitive.join(', '), fix: 'OpenAI flags inputs that request PHI, card data, SSNs, credentials, MFA codes, government IDs or biometrics unless strictly necessary. Remove them or justify them in the submission.', stores: ['chatgpt'] });
+    const passcode = sensitive.some((s) => /\.password$/i.test(s))
+      ? ' If a password input is really a passcode for a page or file the tool makes, name it passcode: ChatGPT’s approval panel files an argument called password under "Account passwords", which reads as a credential request. Accepting both names on the server keeps older clients working.'
+      : '';
+    checks.push({ id: 'tools.sensitive-inputs', level: 'fail', title: 'Tools don’t ask for sensitive data', detail: sensitive.join(', '), fix: `OpenAI flags inputs that request PHI, card data, SSNs, credentials, MFA codes, government IDs or biometrics unless strictly necessary. Remove them or justify them in the submission.${passcode}`, stores: ['chatgpt'] });
   }
 
   const upsell = tools.filter((t) => UPSELL.test(`${t.title ?? ''} ${t.annotations?.title ?? ''} ${t.description ?? ''}`));
@@ -282,6 +285,27 @@ export function toolChecks(tools: Tool[]): Check[] {
     (((t._meta?.['openai/ui'] as { entrypoints?: { type: string; extensions?: string[] }[] } | undefined)?.entrypoints) ?? []).map((e) => `${t.name}: ${e.type}${e.extensions?.length ? ` (${e.extensions.join(', ')})` : ''}`),
   );
   if (ext.length) checks.push({ id: 'tools.extensions', level: 'pass', title: 'ChatGPT extensions declared', detail: ext.join('; '), stores: ['chatgpt'] });
+
+  // A file viewer opens when the user opens a file, and ChatGPT passes it an opaque resource URI. Described as a command
+  // ("Opens an HTML file in…"), the model calls it itself with a file path, and ChatGPT refuses the read ("MCP app cannot
+  // read resource outside its widget scope"). Seen with Stacktree's open_html_file in ChatGPT desktop, 6 Oct 2026.
+  const fileViewers = tools.filter((t) =>
+    (((t._meta?.['openai/ui'] as { entrypoints?: { type: string }[] } | undefined)?.entrypoints) ?? []).some((e) => e.type === 'file'));
+  if (fileViewers.length) {
+    const invites = fileViewers.filter((t) => !/(user opens|when (the |a )?user opens|path does not work|not a (file )?path|opaque)/i.test(t.description ?? ''));
+    checks.push(
+      invites.length
+        ? {
+            id: 'tools.file-viewer-wording',
+            level: 'warn',
+            title: 'File viewers say the user opens the file',
+            detail: invites.map((t) => t.name).join(', '),
+            fix: 'Say that ChatGPT calls this when the user opens a file, that a file path does not work here, and which tool the model should use instead for a file it can read (Stacktree points at publish_html). Otherwise the model calls the viewer with a path and the user sees ChatGPT refuse the read.',
+            stores: ['chatgpt'],
+          }
+        : { id: 'tools.file-viewer-wording', level: 'pass', title: 'File viewers say the user opens the file', stores: ['chatgpt'] },
+    );
+  }
 
   return checks;
 }

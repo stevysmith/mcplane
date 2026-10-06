@@ -104,7 +104,7 @@ export function initializeCheck(r: RpcReply | null, era: Era): Check {
 export function modernHeaderCheck(r: RpcReply | null): Check {
   const title = 'Accepts the Mcp-Method and Mcp-Name headers';
   return r && r.status < 300 && r.body?.result
-    ? check('headers', 'pass', title, { detail: 'a 2026-07-28 tools/list with Mcp-Method works (Mcp-Name only goes on tools/call, resources/read and prompts/get, which mcplane doesn’t call)' })
+    ? check('headers', 'pass', title, { detail: 'a 2026-07-28 tools/list with Mcp-Method works (Mcp-Name only goes on tools/call, resources/read and prompts/get, which this probe doesn’t send)' })
     : check('headers', 'warn', title, { detail: `a 2026-07-28 tools/list with Mcp-Method got ${said(r)}`, fix: 'Mcp-Method is required on every 2026-07-28 POST and must match the body’s method.' });
 }
 

@@ -291,7 +291,8 @@ export async function chatgptPack(m: Manifest, opts: PackOptions = {}): Promise<
   const steps = `# ChatGPT submission: ${m.title} ${m.version ?? ''}
 
 ## 1. Upload the package
-platform.openai.com/plugins → **Upload new or existing plugin** → choose your verified developer identity → upload \`${zipName}\`.
+- **First version:** platform.openai.com/plugins → **Upload new or existing plugin** → choose your verified developer identity → upload \`${zipName}\`.
+- **A new version of a plugin you already have:** open that plugin's page and use **Upload new version** (or **Upload plugin to make changes**). Uploading from the Plugins page instead creates a second plugin, even when the package name matches.
 It fills the listing, icons, test cases, demo video, release notes and translations${skills.names.length ? `, and adds ${skills.names.length === 1 ? 'the skill' : `${skills.names.length} skills:`} ${skills.names.join(', ')}` : ''}. To change any of them later, edit mcplane.json, bump "version" and run \`mcplane pack chatgpt\` again.${skills.names.length ? '\nSkills are scanned too, which can take up to 2 hours. If one is flagged, take it out of chatgpt.skills and upload again; skills can come back in a later version.' : ''}
 
 ## 2. Resolve findings
@@ -310,7 +311,8 @@ Hints need no justification: OpenAI's automated review checks readOnlyHint, dest
 ## Traps
 - One review can be active per plugin. To replace a package in review, cancel the review first.
 - "Submit for review" can show nothing for a while; confirm the status on the Plugins page.
-- Tool changes don't need a new package: OpenAI's scans pick them up once you're published. Listing changes do.
+- Tool changes don't need a new package: OpenAI says its scans pick them up once you're published, after automated checks. Listing changes do. Neither happens on cue: on 6 Oct 2026 a Rescan on a published plugin left its tools table at the reviewed list ("last checked yesterday") and the scanner never connected, and a published plugin's MCP card has no Reconnect. If a new version's test cases use tools added since the last review, wait until the MCPs tab lists them before you submit.
+- Don't fix a duplicate plugin by deleting it and uploading again: deleting can reserve the plugin's name for an unknown time (openai/codex#39508).
 - A rescan doesn't update a submission already in review: it keeps the tools it was submitted with. To change them, cancel the review (back to Draft), reconnect so ChatGPT rediscovers the tools, then resubmit.
 - The package takes icons up to 5 MiB, but developer mode's own icon upload (when you add the server by hand to record the demo) takes 10 KB at most.
 

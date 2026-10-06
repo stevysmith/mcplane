@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.0
+
+New ChatGPT checks
+- `server.widget-domain` (blocks): tools with a UI name resources (`_meta.ui.resourceUri` or `openai/outputTemplate`), and each one must set a widget domain, which OpenAI requires before you can submit a plugin with UI. Preflight now reads those resources; one that needs sign-in is skipped unless you pass `--token`. `openai/widgetDomain` and `ui.domain` both count.
+- `tools.file-viewer-wording` (warning): a tool with a file entrypoint described as a command ("Opens an HTML file…"). The model then calls it with a file path and ChatGPT refuses the read ("MCP app cannot read resource outside its widget scope"), as Stacktree's viewer did on 6 October. Say the user opens the file and name the tool for content the model can read.
+- `tools.sensitive-inputs`: an input called `password` that's really a passcode for something the tool makes gets the advice to call it `passcode`. ChatGPT's approval panel files `password` under "Account passwords".
+
+ChatGPT pack
+- Upload a new version from the plugin's own page (**Upload new version**, or **Upload plugin to make changes**). The Plugins page's upload area creates a second plugin even when the package name matches, which is how Stacktree ended up with two.
+- Published tool changes don't arrive on cue: on 6 October a Rescan left a published plugin's tool table on its reviewed list, and a published plugin's MCP card has no Reconnect. Check the MCPs tab lists new tools before submitting test cases that use them.
+- Don't fix a duplicate by deleting and uploading again: deleting can reserve the plugin's name (openai/codex#39508).
+
+README
+- 2026-07-28 cache hints: a `tools/list` that differs by caller should be `cacheScope: "private"`.
+
 ## 0.5.1
 
 New ChatGPT checks (warnings)

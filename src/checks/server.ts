@@ -69,6 +69,36 @@ export async function serverChecks(url: string, auth: 'none' | 'oauth', token?: 
         : { id: 'server.tools', level: 'fail', title: 'tools/list returns tools', detail: `HTTP ${list?.status ?? 'error'}`, fix: 'Stores scan tools/list; with no tools there is nothing to list.' },
     );
 
+    // Tools with UI name an MCP App resource (_meta.ui.resourceUri, or openai/outputTemplate). OpenAI requires a
+    // dedicated widget domain on each one when you submit a plugin with UI, unique per plugin. Set it as
+    // _meta["openai/widgetDomain"] on the resource: ui.domain also counts, but its format differs by host (Claude
+    // expects its own hash-derived domain there).
+    const uiUris = [...new Set(tools.flatMap((t) => {
+      const meta = (t._meta ?? {}) as { ui?: { resourceUri?: unknown }; 'openai/outputTemplate'?: unknown };
+      return [meta.ui?.resourceUri, meta['openai/outputTemplate']].filter((u): u is string => typeof u === 'string');
+    }))];
+    if (uiUris.length) {
+      const missing: string[] = [];
+      const unread: string[] = [];
+      let denied = 0;
+      for (const uri of uiUris) {
+        const read = await client.request('resources/read', { uri }).catch(() => null);
+        if (read?.status === 401 || read?.status === 403) { denied++; continue; }
+        const content = read?.body?.result?.contents?.[0] as { _meta?: { 'openai/widgetDomain'?: unknown; ui?: { domain?: unknown } } } | undefined;
+        if (!content) unread.push(uri);
+        else if (!content._meta?.['openai/widgetDomain'] && !content._meta?.ui?.domain) missing.push(uri);
+      }
+      checks.push(
+        denied === uiUris.length
+          ? { id: 'server.widget-domain', level: 'skip', title: 'UI resources set a widget domain', detail: 'resources/read needs sign-in; run preflight with --token to check', stores: ['chatgpt'] }
+          : missing.length
+          ? { id: 'server.widget-domain', level: 'fail', title: 'UI resources set a widget domain', detail: missing.join(', '), fix: 'Set _meta["openai/widgetDomain"] (for example "https://yourdomain.com") on each UI resource. OpenAI requires a dedicated, per-plugin widget domain to submit a plugin with UI.', stores: ['chatgpt'] }
+          : unread.length === uiUris.length
+            ? { id: 'server.widget-domain', level: 'warn', title: 'UI resources set a widget domain', detail: `resources/read gave nothing for ${unread.join(', ')}`, fix: 'Tools name UI resources that resources/read does not return. ChatGPT reads them the same way to show the UI.', stores: ['chatgpt'] }
+            : { id: 'server.widget-domain', level: 'pass', title: 'UI resources set a widget domain', detail: uiUris.filter((u) => !unread.includes(u)).join(', '), stores: ['chatgpt'] },
+      );
+    }
+
     const ping = await client.request('ping').catch(() => null);
     checks.push({
       id: 'server.ping',

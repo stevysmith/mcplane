@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { toolChecks } from '../src/checks/tools.js';
+import { serverChecks } from '../src/checks/server.js';
 import { diffTools, drift } from '../src/drift.js';
 import { tryLinks } from '../src/extras.js';
 import { loadManifest } from '../src/manifest.js';
@@ -296,3 +297,56 @@ test('ChatGPT categories map from the old form and brand colours need contrast',
   assert.ok(packs.contrast('#2357C6', '#FFFFFF') >= 2);
   assert.ok(packs.contrast('#FFFF66', '#FFFFFF') < 2);
 });
+
+test('a file viewer described as a command is flagged, one that says the user opens the file passes', () => {
+  const viewer = (description: string): Tool => ({
+    name: 'open_html_file', title: 'Open in Stacktree', description, annotations: hints(true, false), outputSchema: {},
+    _meta: { 'openai/ui': { entrypoints: [{ type: 'file', extensions: ['.html'] }] } },
+  });
+  const bad = toolChecks([viewer('Opens an HTML file in the Stacktree viewer, where it can be published.')]).find((c) => c.id === 'tools.file-viewer-wording');
+  assert.equal(bad?.level, 'warn');
+  assert.deepEqual(bad?.stores, ['chatgpt']);
+  const good = toolChecks([viewer('The Stacktree viewer for an .html file the user opens in ChatGPT desktop. A file path does not work here: call publish_html with the contents.')]).find((c) => c.id === 'tools.file-viewer-wording');
+  assert.equal(good?.level, 'pass');
+  assert.equal(toolChecks([{ name: 'list', title: 'List', annotations: hints(true, false), outputSchema: {} }]).find((c) => c.id === 'tools.file-viewer-wording'), undefined, 'no file viewer, no check');
+});
+
+test('a password input gets the passcode advice; other sensitive inputs do not', () => {
+  const pw = toolChecks([{ name: 'set_password', title: 'Set passcode', inputSchema: { properties: { password: {} } }, annotations: hints(false, true, true), outputSchema: {} }]).find((c) => c.id === 'tools.sensitive-inputs');
+  assert.equal(pw?.level, 'fail');
+  assert.match(pw!.fix!, /name it passcode/);
+  const card = toolChecks([{ name: 'pay', title: 'Pay', inputSchema: { properties: { card_number: {} } }, annotations: hints(false, true, true), outputSchema: {} }]).find((c) => c.id === 'tools.sensitive-inputs');
+  assert.doesNotMatch(card!.fix!, /passcode/);
+});
+
+test('serverChecks: UI resources must set a widget domain for ChatGPT', async () => {
+  for (const [meta, want] of [[{ 'openai/widgetDomain': 'https://example.com' }, 'pass'], [{}, 'fail']] as const) {
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        const msg = body ? JSON.parse(body) : {};
+        const reply = (result: unknown) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id ?? null, result })); };
+        if (req.method !== 'POST') { res.writeHead(204, { 'access-control-allow-origin': '*' }); res.end(); return; }
+        if (msg.id === undefined) { res.writeHead(202); res.end(); return; }
+        if (msg.method === 'initialize') return reply({ protocolVersion: '2025-11-25', capabilities: { tools: {}, resources: {} }, serverInfo: { name: 't', version: '1' } });
+        if (msg.method === 'tools/list') return reply({ tools: [{ name: 'publish', title: 'Publish', annotations: hints(false, true), outputSchema: {}, _meta: { ui: { resourceUri: 'ui://t/card' } } }] });
+        if (msg.method === 'resources/read') return reply({ contents: [{ uri: msg.params.uri, mimeType: 'text/html;profile=mcp-app', text: '<p>card</p>', _meta: meta }] });
+        if (msg.method === 'ping') return reply({});
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Method not found' } }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    try {
+      const { checks } = await serverChecks(`http://127.0.0.1:${port}/mcp`, 'none');
+      const c = checks.find((x) => x.id === 'server.widget-domain');
+      assert.equal(c?.level, want, JSON.stringify(c));
+      if (want === 'fail') assert.match(c!.detail!, /ui:\/\/t\/card/);
+    } finally {
+      server.close();
+    }
+  }
+});
+
