@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { toolChecks } from '../src/checks/tools.js';
-import { diffTools } from '../src/drift.js';
+import { diffTools, drift } from '../src/drift.js';
 import { tryLinks } from '../src/extras.js';
 import { loadManifest } from '../src/manifest.js';
 import { _test as packs } from '../src/packs.js';
@@ -73,6 +74,114 @@ test('the destructive warning skips additive writes, negations, read-only and al
     { name: 'create_gateway', title: 'Create gateway', description: 'Creates a webhook gateway.', annotations: hints(false, false), outputSchema: {} },
   ];
   assert.equal(toolChecks(tools).find((x) => x.id === 'tools.destructive-overwrite'), undefined);
+});
+
+test('toolChecks warns when a non-destructive tool offers a destructive option in its schema', () => {
+  const tools: Tool[] = [
+    {
+      name: 'publish_html',
+      title: 'Publish HTML',
+      description: 'Turns HTML into a private link.',
+      inputSchema: {
+        properties: {
+          content: { type: 'string', description: 'Full HTML to publish.' },
+          burn_after_read: { type: 'boolean', description: 'Auto-delete after first view.' },
+          expires_in_hours: { type: 'number', description: 'Lifetime in hours.' },
+          password: { type: 'string', description: 'Optional viewer passcode.' },
+        },
+      },
+      annotations: hints(false, true),
+      outputSchema: {},
+    },
+    { name: 'save_file', title: 'Save file', description: 'Saves a file.', inputSchema: { properties: { options: { type: 'object', properties: { mode: { type: 'string', enum: ['append', 'overwrite'] } } } } }, annotations: hints(false, false), outputSchema: {} },
+    { name: 'update_page', title: 'Update page', description: 'Changes a page’s settings.', inputSchema: { properties: { expires_at: { type: 'string' } } }, annotations: hints(false, false), outputSchema: {} },
+  ];
+  const c = toolChecks(tools).find((x) => x.id === 'tools.destructive-option');
+  assert.equal(c?.level, 'warn');
+  assert.deepEqual(c?.stores, ['chatgpt']);
+  assert.match(c!.detail!, /publish_html\.burn_after_read \(burn after read, delete\)/);
+  assert.match(c!.detail!, /save_file\.options\.mode \(overwrite\)/, 'one level of nesting, enum values included');
+  assert.match(c!.detail!, /update_page\.expires_at \(expires\)/, 'an expiry on a tool that changes something that exists');
+  assert.doesNotMatch(c!.detail!, /expires_in_hours|password/, 'a lifetime on a tool that creates, and a passcode, are not flagged');
+});
+
+test('the destructive option warning skips additive options, negations, states and hinted tools', () => {
+  const tools: Tool[] = [
+    { name: 'create_share_link', title: 'Create share link', description: 'Mints a link to a page.', inputSchema: { properties: { expires_in: { type: 'number', description: 'Link lifetime in hours; the link expires after it.' } } }, annotations: hints(false, true), outputSchema: {} },
+    { name: 'api_create_key', title: 'Create API key', description: 'Creates an API key.', inputSchema: { properties: { expiry: { type: 'string', description: 'Default 90 days.' } } }, annotations: hints(false, false), outputSchema: {} },
+    { name: 'search_prices', title: 'Compare prices', description: 'Compares prices.', inputSchema: { properties: { includeStale: { type: 'boolean', description: 'Saved prices stay until a refresh replaces them.' } } }, annotations: hints(false, true), outputSchema: {} },
+    { name: 'upload_file', title: 'Upload file', description: 'Uploads a file.', inputSchema: { properties: { name: { type: 'string', description: 'File name. Never overwrites an existing file.' } } }, annotations: hints(false, false), outputSchema: {} },
+    { name: 'tag_items', title: 'Tag items', description: 'Adds a tag.', inputSchema: { properties: { include_deleted: { type: 'boolean', description: 'Also tag items in the deleted folder.' } } }, annotations: hints(false, false), outputSchema: {} },
+    { name: 'clear_cache', title: 'Clear cache', description: 'Clears the cache.', inputSchema: { properties: { purge: { type: 'boolean' } } }, annotations: hints(false, false, true), outputSchema: {} },
+    { name: 'list_pages', title: 'List pages', description: 'Lists pages.', inputSchema: { properties: { delete_after: { type: 'number' } } }, annotations: hints(true, false), outputSchema: {} },
+  ];
+  assert.equal(toolChecks(tools).find((x) => x.id === 'tools.destructive-option'), undefined);
+});
+
+test('toolChecks warns about tools that move money or handle crypto', () => {
+  const tools: Tool[] = [
+    { name: 'link_wallet', title: 'Link wallet', description: 'Links an account. Sign the message with personal_sign (EIP-191).', inputSchema: { properties: { code: { type: 'string' }, wallet: { type: 'string' }, signature: { type: 'string' } } }, annotations: hints(false, false), outputSchema: {} },
+    { name: 'pay_vendor', title: 'Pay vendor', description: 'Sends a payment to a vendor.', annotations: hints(false, true, true), outputSchema: {} },
+    { name: 'get_usdc_balance', title: 'Balance', description: 'The balance of an address.', annotations: hints(true, true), outputSchema: {} },
+    { name: 'start_order', title: 'Start order', description: 'Opens a checkout for the cart.', annotations: hints(false, true), outputSchema: {} },
+  ];
+  const c = toolChecks(tools).find((x) => x.id === 'tools.money-crypto');
+  assert.equal(c?.level, 'warn');
+  assert.deepEqual(c?.stores, ['chatgpt']);
+  assert.match(c!.detail!, /link_wallet \(wallet, personal_sign, eip-191\)/);
+  assert.match(c!.detail!, /pay_vendor \(sends a payment\)/);
+  assert.match(c!.detail!, /get_usdc_balance \(usdc\)/, 'crypto in a read-only tool’s name counts');
+  assert.match(c!.detail!, /start_order \(checkout\)/);
+});
+
+test('prices, billing links, check-out dates and passing mentions are not money movement', () => {
+  const tools: Tool[] = [
+    { name: 'search_hotels', title: 'Search hotels', description: 'Finds hotels with live pricing, the purchase price and how to buy a room.', annotations: hints(true, true), outputSchema: {} },
+    { name: 'book_room', title: 'Book room', description: 'Holds a room and returns a link to the billing page. No crypto wallet needed.', inputSchema: { properties: { check_out: { type: 'string' }, checkout_date: { type: 'string' } } }, annotations: hints(false, true), outputSchema: {} },
+    { name: 'export_orders', title: 'Export orders', description: 'Exports your purchase history and pricing plan to a CSV.', annotations: hints(false, false), outputSchema: {} },
+    { name: 'get_indicator', title: 'Get an indicator', description: 'Inflation, GDP, crypto market cap and more, for any country.', annotations: hints(true, true), outputSchema: {} },
+  ];
+  assert.equal(toolChecks(tools).find((x) => x.id === 'tools.money-crypto'), undefined, 'a passing mention in a read-only tool’s description does not count');
+});
+
+test('drift: a ChatGPT submission in review keeps its tools, so changes need cancel, reconnect and resubmit', async () => {
+  // A live server whose report tool changed its openWorldHint and gained a sibling since the snapshot.
+  const live: Tool[] = [{ name: 'report', annotations: hints(false, true) }, { name: 'status', annotations: hints(true, false) }];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      const rpc = JSON.parse(body);
+      if (rpc.id === undefined) return res.writeHead(202).end();
+      const result = rpc.method === 'tools/list' ? { tools: live } : { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'acme', version: '1.0.0' } };
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result }));
+    });
+  });
+  await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+  try {
+    const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/mcp`;
+    const mm: Manifest = { ...m, repository: undefined, server: { url, auth: 'none' } };
+    const dir = await mkdtemp(join(tmpdir(), 'mcplane-drift-'));
+    await mkdir(join(dir, '.mcplane', 'snapshots'), { recursive: true });
+    const snapshot = (state: string) =>
+      writeFile(
+        join(dir, '.mcplane', 'snapshots', 'chatgpt.json'),
+        JSON.stringify({ store: 'chatgpt', takenOn: '2026-10-05', state, tools: [{ name: 'report', hints: { readOnly: false, destructive: false, openWorld: false }, input: '', output: '' }], listing: { title: mm.title, oneLiner: mm.oneLiner, website: mm.links?.website } }),
+      );
+
+    await snapshot('submitted');
+    const inReview = (await drift(mm, ['chatgpt'], {}, dir)).items;
+    assert.equal(inReview.length, 1, 'one item: the hint change is part of the tool change');
+    assert.equal(inReview[0].level, 'info');
+    assert.match(inReview[0].todo, /keeps the tools it was submitted with.*cancel the review \(back to Draft\), reconnect so ChatGPT rediscovers the tools, then resubmit/);
+
+    await snapshot('live');
+    const published = (await drift(mm, ['chatgpt'], {}, dir)).items;
+    assert.match(published[0].todo, /No resubmission needed for tools/);
+    assert.ok(published.some((i) => i.what.startsWith('Hints changed: report')));
+  } finally {
+    server.close();
+  }
 });
 
 test('justifications become optional appeal notes for tools the server still has', () => {

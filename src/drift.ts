@@ -189,16 +189,19 @@ export async function drift(m: Manifest, stores: StoreId[], opts: { token?: stri
 
     if (store === 'chatgpt') {
       // OpenAI rescans published servers: removals apply at once, new and changed tools after automated checks.
-      // Listing text is part of the version and needs a new one.
+      // A version in review keeps the tool snapshot it was submitted with. Listing text is part of the version and needs a new one.
       const hintChanges = d.changed.filter((c) => c.fields.some((f) => f.includes('Hint')));
+      const inReview = snap.state === 'submitted';
       if (toolChange)
         items.push({
           store,
           level: 'info',
           what: `Tools changed ${since}: ${summary}`,
-          todo: `No resubmission needed for tools: OpenAI rescans your server, drops removed tools at once and switches new or changed ones over after they pass automated checks (the old definition stays live until then).${d.added.length || d.removed.length ? ' Update the test cases and demo video in your next version.' : ''}`,
+          todo: inReview
+            ? 'A rescan doesn’t update a submission already in review: it keeps the tools it was submitted with. For review to see these changes, cancel the review (back to Draft), reconnect so ChatGPT rediscovers the tools, then resubmit. The scan takes about 4 to 6 minutes; reload the page to see the result.'
+            : `No resubmission needed for tools: OpenAI rescans your server, drops removed tools at once and switches new or changed ones over after they pass automated checks (the old definition stays live until then).${d.added.length || d.removed.length ? ' Update the test cases and demo video in your next version.' : ''}`,
         });
-      if (hintChanges.length)
+      if (hintChanges.length && !inReview)
         items.push({ store, level: 'info', what: `Hints changed: ${hintChanges.map((c) => c.tool).join(', ')}`, todo: 'Nothing to resubmit: OpenAI re-checks changed annotations automatically and no longer asks for justifications. If its review flags a value you believe is right, appeal with an explanation.' });
       if (listingChange.length) items.push({ store, level: 'action', what: `Listing text changed (${listingChange.join(', ')})`, todo: 'Listing changes need a new version, review and publication: "mcplane pack chatgpt", import it into a new version, submit.' });
     }
@@ -222,7 +225,7 @@ export async function drift(m: Manifest, stores: StoreId[], opts: { token?: stri
         items.push({ store, level: 'info', what: `Grok serves ${pinned.slice(0, 7)}; your repo is at ${head.slice(0, 7)}`, todo: 'xAI bumps pins daily. If it’s still behind tomorrow, "mcplane publish grok" opens a pin-bump pull request.' });
     }
     if (store === 'muse' && (toolChange || listingChange.length)) {
-      items.push({ store, level: 'info', what: `Changed ${since}: ${[summary, listingChange.length && `listing ${listingChange.join(', ')}`].filter(Boolean).join('; ')}`, todo: 'Meta hasn’t published an update process yet. Update the listing in muse.ai/platform if it shows old details.' });
+      items.push({ store, level: 'info', what: `Changed ${since}: ${[summary, listingChange.length && `listing ${listingChange.join(', ')}`].filter(Boolean).join('; ')}`, todo: 'Meta hasn’t published an update process yet. Open the submission in muse.ai/platform, which shows its stage (Submitted, then In review) and three requirements, and update anything that shows old details. If tools changed, update the Read, Write and Sensitive annotations you keep alongside the connector too.' });
     }
     if (store === 'mcp-registry' && (toolChange || listingChange.length)) {
       items.push({ store, level: 'action', what: `Changed ${since}`, todo: 'Bump the version and run "mcplane publish mcp-registry".' });

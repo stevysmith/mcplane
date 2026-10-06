@@ -35,7 +35,7 @@ function reminders(m: Manifest, stores: StoreId[]): string[] {
     r.push('ChatGPT needs a demo video recorded in developer mode that shows the tools your test cases use. Re-record it whenever tools change ("mcplane demo" records it on a Mac with ChatGPT desktop).');
     r.push('After "Submit for Review" the ChatGPT portal shows nothing for about 20 seconds. Confirm the status on the plugins list, not the button.');
     r.push('OpenAI no longer asks for hint justifications: its automated review checks each tool’s hints. If it flags one you believe is right, appeal with an explanation.');
-    r.push('ChatGPT allows one version in review at a time. To change a submission, Cancel Review and resubmit the same draft.');
+    r.push('ChatGPT allows one version in review at a time, and a rescan doesn’t update the tools it was submitted with. To change a submission, Cancel Review (back to Draft), reconnect if tools changed so ChatGPT rediscovers them, and resubmit.');
   }
   if (stores.includes('claude-connectors') || stores.includes('claude-plugins')) {
     if (stores.includes('claude-connectors')) r.push('Claude connectors are submitted from an organisation’s admin settings (claude.ai/directory/manage), so you need admin rights in a paid org. The tool list is synced from your server when you submit; it is not an editable field.');

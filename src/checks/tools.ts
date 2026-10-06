@@ -26,14 +26,59 @@ const BEARER_INPUT = /^(token|edit_token|update_token|secret|access_key|api_key|
 const DESTRUCTIVE = /\b(overwrit\w*|replac\w*|revo[kc]\w*|delet\w*|cancel\w*|archiv\w*|expir\w*|passwords?|gat(?:e|es|ed|ing))\b/gi;
 const NEGATED = /\b(never|not|no|without|nothing|refuses?|cannot|can['’]t|doesn['’]t|don['’]t|won['’]t)\b(\s+\w+){0,2}\s*$/i;
 
-/** The destructive words in a tool's name, title and description, skipping negated ones ("never overwrites"). */
-function destructiveWords(text: string): string[] {
+/**
+ * Destructive options in an input schema. No "-ed" forms: they describe a state (include_deleted, "the deleted
+ * page's id"), not what the option does. Passcodes and gates stay out: a passcode on a page the call creates
+ * revokes nothing.
+ */
+const DESTRUCTIVE_OPTION = /\b(burn[\s_-]+after[\s_-]+read\w*|self[\s_-]?destruct(?:s|ing)?|delet(?:e|es|ing|ion)|destroy(?:s|ing)?|overwrit(?:e|es|ing)|replac(?:e|es|ing|ement)|revok(?:e|es|ing)|revocation|purg(?:e|es|ing)|wip(?:e|es|ing)|eras(?:e|es|ing|ure)|expir(?:e|es|ing|y|ation))\b/gi;
+
+/** Tools that make something new: a creating verb anywhere in the name (api_create_key), or first when it's also a noun (update_post isn't one). */
+const CREATES = /\b(create|add|new|publish|upload|mint|generate|insert)\b|^(post|share|invite|issue|schedule|make)\b/i;
+
+/** Crypto: wallets, chains, signing schemes and stablecoins. */
+const CRYPTO = /\b(crypto(?:currenc(?:y|ies))?|wallets?|on[\s-]?chain|blockchains?|web3|eip[\s-]?(?:191|712)|personal[\s_-]?sign|eth[\s_-]sign|sign[\s_-]?typed[\s_-]?data|usdc|usdt|stablecoins?|bitcoin|ethereum|solana|x402|nfts?|seed phrases?)\b/gi;
+
+/**
+ * Moving money, as a verb with what it moves. Like UPSELL, phrases only: prices, pricing pages and billing
+ * links aren't money movement, and neither is a purchase history or a hotel's check-out date.
+ */
+const MONEY = /\b(transfer(?:s|ring)? (?:the |your )?(?:funds|money|payments?)|send(?:s|ing)? (?:a |the |your )?(?:money|funds|payments?)|(?:make|makes|making|complete|completes|process|processes|processing|submit|submits|execute|executes) (?:a |the )?(?:payments?|purchases?)|pay(?:s|ing)? (?:an? |the |your )?(?:invoices?|bills?)|charg(?:e|es|ing) (?:a |the |their |your )?(?:cards?|customers?)|refund(?:s|ing)? (?:an? |the |their |your )?(?:customers?|orders?|payments?|charges?)|issu(?:e|es|ing) (?:a )?refunds?|(?:withdraw|deposit)(?:s|ing)? (?:funds|money)|(?:purchas(?:e|es|ing)|buy(?:s|ing)?) (?:an?|the|this|it)|checkouts?(?![\s_-]*(?:date|time|day)))\b/gi;
+
+/** The words a pattern finds in text, skipping negated ones ("never overwrites"). */
+function mentions(text: string, re: RegExp): string[] {
   const found = new Set<string>();
-  for (const m of text.matchAll(DESTRUCTIVE)) {
+  for (const m of text.matchAll(re)) {
     if (NEGATED.test(text.slice(Math.max(0, m.index - 40), m.index))) continue;
-    found.add(m[1].toLowerCase());
+    found.add(m[0].toLowerCase().replace(/\s+/g, ' '));
   }
   return [...found];
+}
+
+/** The destructive words in a tool's name, title and description. */
+const destructiveWords = (text: string) => mentions(text, DESTRUCTIVE);
+
+/** A name as words: set_password and setPassword both read "set password". */
+const words = (name: string) => name.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
+
+/** A tool's input properties and the ones a level down (an object's properties, an array's items), by path. */
+function inputProps(t: Tool): [string, Record<string, any>][] {
+  return Object.entries(t.inputSchema?.properties ?? {}).flatMap(([k, v]) => {
+    const p = (v ?? {}) as Record<string, any>;
+    const kids = (p.properties ?? p.items?.properties ?? {}) as Record<string, unknown>;
+    return [[k, p] as [string, Record<string, any>], ...Object.entries(kids).map(([c, cv]) => [`${k}.${c}`, (cv ?? {}) as Record<string, any>] as [string, Record<string, any>])];
+  });
+}
+
+/**
+ * The destructive words in what a property says about itself: its name, string enum values ("overwrite") and
+ * description. "Replace" counts in names and values only: descriptions use it loosely ("until a refresh replaces them").
+ */
+function optionWords(path: string, p: Record<string, any>): string[] {
+  const values = Array.isArray(p.enum) ? p.enum.filter((e: unknown) => typeof e === 'string').join(' ') : '';
+  const named = mentions(`${words(path.split('.').pop()!)} ${values}`, DESTRUCTIVE_OPTION);
+  const described = mentions(typeof p.description === 'string' ? p.description : '', DESTRUCTIVE_OPTION).filter((w) => !w.startsWith('replac'));
+  return [...new Set([...named, ...described])];
 }
 
 export function toolChecks(tools: Tool[]): Check[] {
@@ -143,8 +188,8 @@ export function toolChecks(tools: Tool[]): Check[] {
   // Conservative: explicit write tools whose own words say so, negated mentions ("never overwrites") excluded.
   const destroys = tools.flatMap((t) => {
     if (t.annotations?.readOnlyHint !== false || t.annotations?.destructiveHint !== false) return [];
-    const words = destructiveWords(`${t.name.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')} ${t.title ?? ''} ${t.description ?? ''}`);
-    return words.length ? [`${t.name} (${words.join(', ')})`] : [];
+    const found = destructiveWords(`${words(t.name)} ${t.title ?? ''} ${t.description ?? ''}`);
+    return found.length ? [`${t.name} (${found.join(', ')})`] : [];
   });
   if (destroys.length) {
     checks.push({
@@ -153,6 +198,52 @@ export function toolChecks(tools: Tool[]): Check[] {
       title: 'destructiveHint covers overwriting, revoking and deleting',
       detail: `${destroys.join('; ')}: destructiveHint is false, but the tool seems to overwrite, revoke access or delete`,
       fix: 'OpenAI: for writes, use true "for potentially destructive or irreversible effects, such as deletion, overwriting, cancellation, access revocation, or irreversible sends or transactions". "Being able to undo an action does not, by itself, justify setting destructiveHint to false." If the tool only adds, keep false, and appeal if review flags it.',
+      stores: ['chatgpt'],
+    });
+  }
+
+  // ChatGPT's scan reads the input schema too: it flagged Stacktree's publish_html, marked non-destructive, for
+  // offering burn_after_read, and a rescan cleared it once the option was gone from the advertised schema (Oct 2026).
+  // Conservative: property names, descriptions and enum values, one level deep. Expiry is the trade-off: it only
+  // counts on tools that change something that exists. On a tool that creates (a publish's lifetime, a share
+  // link's expires_in) it bounds what the call itself adds, and publish_html kept expires_in_hours through
+  // that rescan. An expiry on an update tool still counts: it can take a live page down.
+  const options = tools.flatMap((t) => {
+    if (t.annotations?.readOnlyHint !== false || t.annotations?.destructiveHint !== false) return [];
+    const creates = CREATES.test(words(t.name));
+    return inputProps(t).flatMap(([path, p]) => {
+      const found = optionWords(path, p).filter((w) => !(creates && w.startsWith('expir')));
+      return found.length ? [`${t.name}.${path} (${found.join(', ')})`] : [];
+    });
+  });
+  if (options.length) {
+    checks.push({
+      id: 'tools.destructive-option',
+      level: 'warn',
+      title: 'destructiveHint covers the options a tool’s schema offers',
+      detail: `${options.join('; ')}: destructiveHint is false, but the schema offers an option that deletes, overwrites, revokes or expires`,
+      fix: 'Set destructiveHint to true, or stop advertising the option in the schema you serve ChatGPT; your server can keep honouring it for older clients that still send it. ChatGPT’s scan flagged a publish tool marked non-destructive whose schema offered burn_after_read, and removing the option from the advertised schema cleared the flag on rescan.',
+      stores: ['chatgpt'],
+    });
+  }
+
+  // Before submitting, ChatGPT has the developer attest that the app involves no money or crypto.
+  // Moving money is a write, so read-only tools are judged by what they're about (name, title, property names) and a
+  // passing mention in their description doesn't count ("inflation, GDP, crypto and more").
+  const money = tools.flatMap((t) => {
+    const about = `${words(t.name)} ${t.title ?? ''} ${t.annotations?.title ?? ''} ${inputProps(t).map(([path]) => words(path.split('.').pop()!)).join(' ')}`;
+    const readOnly = t.annotations?.readOnlyHint === true;
+    const text = readOnly ? about : `${about} ${t.description ?? ''}`;
+    const found = [...mentions(text, CRYPTO), ...(readOnly ? [] : mentions(text, MONEY))];
+    return found.length ? [`${t.name} (${found.join(', ')})`] : [];
+  });
+  if (money.length) {
+    checks.push({
+      id: 'tools.money-crypto',
+      level: 'warn',
+      title: 'Tools don’t move money or handle crypto',
+      detail: `${money.join('; ')}: the tool seems to move money or handle crypto`,
+      fix: 'ChatGPT’s final submit step has you tick an attestation that the app involves no money or crypto. Remove the tool, or hide it from ChatGPT connections only: leave it out of their tools/list and refuse calls to it. Stacktree serves a per-client tool profile, and a client counts as ChatGPT when every OAuth redirect URI it registered is on chatgpt.com or openai.com, or its client name is "ChatGPT". "Every", not "any": some clients register a claude.ai callback beside a chatgpt.com one.',
       stores: ['chatgpt'],
     });
   }

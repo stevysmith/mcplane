@@ -223,6 +223,10 @@ test('pack chatgpt builds behind sign-in without --token, bundling local icons a
     const steps = String(pack.files.find((f) => f.path === 'chatgpt/chatgpt.md')!.content);
     assert.match(steps, /adds the skill orders/);
     assert.match(steps, /### get_order\n- readOnlyHint: Reads only\./, 'with no tool list, appeal notes keep every tool');
+    assert.match(steps, /about 4 to 6 minutes, and the page's spinner never finishes: reload/);
+    assert.match(steps, /"Needs further review" sends a tool to human review\. It isn't an error/);
+    assert.match(steps, /Name tools by what they do/);
+    assert.match(steps, /cancel the review \(back to Draft\), reconnect so ChatGPT rediscovers the tools, then resubmit/);
 
     // The root description limit, and a non-square icon in a format other than PNG.
     await writeFile(join(dir, 'assets', 'wide.jpg'), jpeg(800, 600));
@@ -250,6 +254,30 @@ test('pack chatgpt checks test cases against a saved tool list', async () => {
   } finally {
     server.close();
   }
+});
+
+test('pack muse: the portal’s three requirements and per-tool annotations from a saved tool list', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mcplane-pack-'));
+  const tools = [
+    { name: 'get_order', annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false } },
+    { name: 'cancel_order', annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: true } },
+  ];
+  await writeFile(join(dir, 'tools.json'), JSON.stringify({ tools }));
+  const m: Manifest = { name: 'acme', title: 'Acme', oneLiner: 'Look up Acme orders.', server: { url: 'https://mcp.acme.dev/mcp', auth: 'none' }, links: { privacy: 'https://acme.dev/privacy' } };
+  const pack = await packFor(m, 'muse', { dir, tools: 'tools.json' });
+  assert.deepEqual(pack.problems, []);
+  assert.deepEqual(pack.todo, []);
+  const md = String(pack.files.find((f) => f.path === 'muse.md')!.content);
+  assert.match(md, /Submitted then In review/);
+  assert.match(md, /\*\*Business verification:\*\* a code sent by email\. Each "Verify email" click sends a new code and invalidates the last one/);
+  assert.match(md, /\*\*Questionnaire:\*\* your company details and where data is stored/);
+  assert.match(md, /\*\*Integration credentials:\*\* none required: for an authless MCP/);
+  assert.match(md, /"complete the additional intake questions"/);
+  assert.match(md, /- get_order: Read\n- cancel_order: Write/);
+  assert.match(md, /hasn't published an update process yet/);
+  assert.doesNotMatch(md, /gives no status/);
+  const oauth = await packFor({ ...m, server: { ...m.server, auth: 'oauth' } }, 'muse', { dir, tools: 'tools.json' });
+  assert.match(String(oauth.files[0].content), /\*\*Integration credentials:\*\* a test API key or similar/);
 });
 
 /* ---------------- preflight: the icon and the package description ---------------- */

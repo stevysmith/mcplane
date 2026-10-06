@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1
+
+New ChatGPT checks (warnings)
+- `tools.destructive-option`: a tool marked non-destructive whose input schema offers a destructive option (`burn_after_read`, delete, overwrite, revoke, purge and the like), read from property names, descriptions and enum values one level deep. ChatGPT's scan flagged exactly that, and removing the option from the advertised schema cleared it. An expiry on a tool that creates something isn't flagged.
+- `tools.money-crypto`: tools that move money or handle crypto wallets, signing or stablecoins. ChatGPT's submit step has you attest to neither. Prices, pricing pages and billing links aren't flagged.
+
+Packs and drift
+- ChatGPT: the tool scan's timing and spinner, what "Needs further review" means, unclear tool names, and that a rescan doesn't update a submission in review (cancel, reconnect, resubmit). `drift` says so for a snapshot still in review.
+- Muse: Meta's developer portal at muse.ai/platform, its stages and three requirements, the 5 October intake questions, and per-tool Read/Write annotations drafted from your hints until the portal takes them.
+
 ## 0.5.0
 
 New command

@@ -297,6 +297,9 @@ It fills the listing, icons, test cases, demo video, release notes and translati
 ## 2. Resolve findings
 Open **Metadata & Skills** and **MCPs**, wait for the checks, fix anything listed (Copy issues is handy), and upload again if the package changes.
 Domain verification: serve the token it gives you as plain text at ${new URL(m.server.url).origin}/.well-known/openai-apps-challenge, and keep it there.
+- The tool scan takes about 4 to 6 minutes, and the page's spinner never finishes: reload to see the result.
+- "Needs further review" sends a tool to human review. It isn't an error, and the automated judge reshuffles which tools land there between scans.
+- Name tools by what they do. The scan flags names it can't understand: Stacktree's set_agentation, named after a product, was flagged "unclear name".
 
 ## 3. What only you can enter
 - **Review details:** reviewer credentials${m.server.auth === 'oauth' ? ` (${m.reviewerAccess ?? 'an email-and-password account with no 2FA, SMS or email confirmation, seeded for every test case'})` : ' (none needed: no sign-in)'}. Credentials never go in the ZIP.
@@ -307,7 +310,8 @@ Hints need no justification: OpenAI's automated review checks readOnlyHint, dest
 ## Traps
 - One review can be active per plugin. To replace a package in review, cancel the review first.
 - "Submit for review" can show nothing for a while; confirm the status on the Plugins page.
-- Tool changes don't need a new package: OpenAI's scans pick them up. Listing changes do.
+- Tool changes don't need a new package: OpenAI's scans pick them up once you're published. Listing changes do.
+- A rescan doesn't update a submission already in review: it keeps the tools it was submitted with. To change them, cancel the review (back to Draft), reconnect so ChatGPT rediscovers the tools, then resubmit.
 - The package takes icons up to 5 MiB, but developer mode's own icon upload (when you add the server by hand to record the demo) takes 10 KB at most.
 
 When it's in: \`mcplane submitted chatgpt --version ${m.version ?? '1.0.0'} --app-id <asdk_app_… from the URL>\`
@@ -637,7 +641,47 @@ export async function packFor(m: Manifest, name: string, opts: PackOptions = {})
   if (name === 'chatgpt') return chatgptPack(m, opts);
   if (name === 'claude-connectors') return claudePack(m, opts);
   if (name === 'vercel-connect') return vercelConnectPack(m);
+  if (name === 'muse') return musePack(m, opts);
   return simplePack(m, name as StoreId);
+}
+
+/**
+ * Muse: the values for Meta's developer portal (muse.ai/platform, live since 2 Oct 2026), what each
+ * submission's three requirements ask for, and per-tool annotations to keep until the portal takes them.
+ */
+export async function musePack(m: Manifest, opts: PackOptions = {}): Promise<Pack> {
+  m = forStore(m, 'muse');
+  const listed = await toolsFor(m, opts);
+  const oauth = m.server.auth === 'oauth';
+  const todo = listed.tools ? [] : [withoutTools(listed.why, 'the per-tool annotations')];
+  const annotations = listed.tools
+    ? listed.tools.map((t) => `- ${t.name}: ${t.annotations?.readOnlyHint === true ? 'Read' : 'Write'}`).join('\n') || 'No tools listed.'
+    : 'Unknown without the tool list (pass --token or --tools).';
+  const md = `# Muse connectors: ${m.title}
+
+Submit at muse.ai/platform, Meta's developer portal (launched 2 October 2026), choosing "Existing MCP". Meta's Jake Levine mentioned about 3,000 connector submissions when he announced it on X, so expect a queue.
+
+- MCP server URL: ${m.server.url}
+- Auth: ${oauth ? 'OAuth (PKCE)' : 'None'}
+- Name: ${m.title}
+- Description: ${m.oneLiner ?? m.description ?? 'MISSING'}
+- Privacy: ${m.links?.privacy ?? 'MISSING'}
+
+## After you submit
+Each submission shows its stage, Submitted then In review, and three requirements:
+- **Business verification:** a code sent by email. Each "Verify email" click sends a new code and invalidates the last one, so click once and don't leave the code box until the email arrives.
+- **Questionnaire:** your company details and where data is stored.
+- **Integration credentials:** ${oauth ? 'a test API key or similar, so Meta can reach the tools behind your sign-in.' : 'none required: for an authless MCP, the portal says so.'}
+
+On 5 October Meta emailed developers asking them to "complete the additional intake questions", so check the portal for anything still open.
+
+## Tool annotations
+Meta's docs ask for a Read, Write or Sensitive annotation on each tool. The portal's field for them is marked as coming soon, so document them alongside the connector for now. Drafted from your readOnlyHint values; Sensitive is your call against Meta's docs:
+${annotations}
+
+Meta hasn't published an update process yet. When it's in: \`mcplane submitted muse\`.
+`;
+  return { files: [{ path: 'muse.md', content: md }], problems: [], todo };
 }
 
 export async function simplePack(m: Manifest, store: StoreId): Promise<Pack> {
@@ -648,7 +692,7 @@ export async function simplePack(m: Manifest, store: StoreId): Promise<Pack> {
     if (!m.repository) problems.push('repository is missing; Cursor reads plugins from a public GitHub repo');
     md = `# Cursor Marketplace: ${m.title}\n\nSubmit at cursor.com/marketplace/publish.\n\n- Repository: ${m.repository ?? 'MISSING'} (public, with a Cursor plugin manifest)\n- Name: ${m.title}\n- Description: ${m.oneLiner ?? m.description ?? 'MISSING'}\n- Website: ${m.links?.website ?? ''}\n\nEvery plugin is reviewed by hand. When it's in: \`mcplane submitted cursor\`. Review Times closes the report itself when your plugin appears in the marketplace.\n`;
   } else if (store === 'muse') {
-    md = `# Muse connectors: ${m.title}\n\nSubmit at muse.ai/platform, choosing "Existing MCP".\n\n- MCP server URL: ${m.server.url}\n- Auth: ${m.server.auth === 'oauth' ? 'OAuth (PKCE)' : 'None'}\n- Name: ${m.title}\n- Description: ${m.oneLiner ?? m.description ?? 'MISSING'}\n- Privacy: ${m.links?.privacy ?? 'MISSING'}\n\nMeta onboards in waves and gives no status yet. When it's in: \`mcplane submitted muse\`.\n`;
+    return musePack(m);
   } else {
     throw new Error(`No pack for ${store} yet. Packs: ${PACKS.join(', ')}.`);
   }
