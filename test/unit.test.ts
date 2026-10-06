@@ -77,6 +77,24 @@ test('the destructive warning skips additive writes, negations, read-only and al
   assert.equal(toolChecks(tools).find((x) => x.id === 'tools.destructive-overwrite'), undefined);
 });
 
+test('the destructive warning skips a sibling tool’s verbs and expiry on a tool that creates', () => {
+  // Stacktree's publish_html as it passed ChatGPT's scan in October 2026.
+  const tools: Tool[] = [
+    {
+      name: 'publish_html',
+      title: 'Publish HTML',
+      description: 'It only ever creates a new page: it never changes or deletes one that already exists (update_site replaces a page in place). Privacy-first defaults: plan-aware expiry (permanent on paid plans, 7 days on free).',
+      annotations: hints(false, false),
+      outputSchema: {},
+    },
+    { name: 'update_site', title: 'Update site', description: 'Replaces a page in place, keeping its link.', annotations: hints(false, false, true), outputSchema: {} },
+  ];
+  assert.equal(toolChecks(tools).find((x) => x.id === 'tools.destructive-overwrite'), undefined);
+  // The same words about the tool itself still count.
+  const own: Tool[] = [{ name: 'update_page', title: 'Update page', description: 'Replaces the page and resets its expiry.', annotations: hints(false, false), outputSchema: {} }];
+  assert.match(toolChecks(own).find((x) => x.id === 'tools.destructive-overwrite')!.detail!, /update_page \(replaces, expiry\)/);
+});
+
 test('toolChecks warns when a non-destructive tool offers a destructive option in its schema', () => {
   const tools: Tool[] = [
     {

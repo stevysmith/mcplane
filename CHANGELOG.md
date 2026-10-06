@@ -12,6 +12,9 @@ ChatGPT pack
 - Published tool changes don't arrive on cue: on 6 October a Rescan left a published plugin's tool table on its reviewed list, and a published plugin's MCP card has no Reconnect. Check the MCPs tab lists new tools before submitting test cases that use them.
 - Don't fix a duplicate by deleting and uploading again: deleting can reserve the plugin's name (openai/codex#39508).
 
+Fewer false alarms
+- `tools.destructive-overwrite` skips verbs whose subject is a sibling tool ("update_site replaces a page in place" in another tool's description) and, like `tools.destructive-option`, expiry on a tool that creates. Stacktree's publish_html, which passed ChatGPT's scan, no longer warns.
+
 README
 - 2026-07-28 cache hints: a `tools/list` that differs by caller should be `cacheScope: "private"`.
 

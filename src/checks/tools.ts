@@ -45,18 +45,23 @@ const CRYPTO = /\b(crypto(?:currenc(?:y|ies))?|wallets?|on[\s-]?chain|blockchain
  */
 const MONEY = /\b(transfer(?:s|ring)? (?:the |your )?(?:funds|money|payments?)|send(?:s|ing)? (?:a |the |your )?(?:money|funds|payments?)|(?:make|makes|making|complete|completes|process|processes|processing|submit|submits|execute|executes) (?:a |the )?(?:payments?|purchases?)|pay(?:s|ing)? (?:an? |the |your )?(?:invoices?|bills?)|charg(?:e|es|ing) (?:a |the |their |your )?(?:cards?|customers?)|refund(?:s|ing)? (?:an? |the |their |your )?(?:customers?|orders?|payments?|charges?)|issu(?:e|es|ing) (?:a )?refunds?|(?:withdraw|deposit)(?:s|ing)? (?:funds|money)|(?:purchas(?:e|es|ing)|buy(?:s|ing)?) (?:an?|the|this|it)|checkouts?(?![\s_-]*(?:date|time|day)))\b/gi;
 
-/** The words a pattern finds in text, skipping negated ones ("never overwrites"). */
-function mentions(text: string, re: RegExp): string[] {
+/**
+ * The words a pattern finds in text, skipping negated ones ("never overwrites") and ones whose subject is another
+ * tool: "(update_site replaces a page in place)" describes update_site, not the tool being checked.
+ */
+function mentions(text: string, re: RegExp, others: string[] = []): string[] {
   const found = new Set<string>();
+  const subject = others.length ? new RegExp(`\\b(${others.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b(\\s+\\w+){0,2}\\s*$`, 'i') : null;
   for (const m of text.matchAll(re)) {
-    if (NEGATED.test(text.slice(Math.max(0, m.index - 40), m.index))) continue;
+    const before = text.slice(Math.max(0, m.index - 40), m.index);
+    if (NEGATED.test(before) || subject?.test(before)) continue;
     found.add(m[0].toLowerCase().replace(/\s+/g, ' '));
   }
   return [...found];
 }
 
-/** The destructive words in a tool's name, title and description. */
-const destructiveWords = (text: string) => mentions(text, DESTRUCTIVE);
+/** The destructive words in a tool's name, title and description, given the names of its sibling tools. */
+const destructiveWords = (text: string, others: string[] = []) => mentions(text, DESTRUCTIVE, others);
 
 /** A name as words: set_password and setPassword both read "set password". */
 const words = (name: string) => name.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
@@ -186,9 +191,13 @@ export function toolChecks(tools: Tool[]): Check[] {
 
   // The same definition covers overwriting, revoking access and deleting; an undo doesn't change that.
   // Conservative: explicit write tools whose own words say so, negated mentions ("never overwrites") excluded.
+  // Expiry follows the destructive-option rule below: on a tool that creates, it bounds what the call adds.
+  // Stacktree's publish_html ("plan-aware expiry", "update_site replaces a page in place") passed ChatGPT's scan.
   const destroys = tools.flatMap((t) => {
     if (t.annotations?.readOnlyHint !== false || t.annotations?.destructiveHint !== false) return [];
-    const found = destructiveWords(`${words(t.name)} ${t.title ?? ''} ${t.description ?? ''}`);
+    const creates = CREATES.test(words(t.name));
+    const others = tools.filter((o) => o !== t).map((o) => o.name);
+    const found = destructiveWords(`${words(t.name)} ${t.title ?? ''} ${t.description ?? ''}`, others).filter((w) => !(creates && w.startsWith('expir')));
     return found.length ? [`${t.name} (${found.join(', ')})`] : [];
   });
   if (destroys.length) {
