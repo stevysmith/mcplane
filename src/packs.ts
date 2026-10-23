@@ -292,7 +292,7 @@ export async function chatgptPack(m: Manifest, opts: PackOptions = {}): Promise<
 
 ## 1. Upload the package
 - **First version:** platform.openai.com/plugins → **Upload new or existing plugin** → choose your verified developer identity → upload \`${zipName}\`.
-- **A new version of a plugin you already have:** open that plugin's page and use **Upload new version** (or **Upload plugin to make changes**). Uploading from the Plugins page instead creates a second plugin, even when the package name matches.
+- **A new version of a plugin you already have:** open that plugin's page and use **Create draft from ZIP** in its header (earlier: **Upload new version** or **Upload plugin to make changes**). Uploading from the Plugins page instead creates a second plugin, even when the package name matches.
 It fills the listing, icons, test cases, demo video, release notes and translations${skills.names.length ? `, and adds ${skills.names.length === 1 ? 'the skill' : `${skills.names.length} skills:`} ${skills.names.join(', ')}` : ''}. To change any of them later, edit mcplane.json, bump "version" and run \`mcplane pack chatgpt\` again.${skills.names.length ? '\nSkills are scanned too, which can take up to 2 hours. If one is flagged, take it out of chatgpt.skills and upload again; skills can come back in a later version.' : ''}
 
 ## 2. Resolve findings
@@ -306,6 +306,9 @@ Domain verification: serve the token it gives you as plain text at ${new URL(m.s
 - **Review details:** reviewer credentials${m.server.auth === 'oauth' ? ` (${m.reviewerAccess ?? 'an email-and-password account with no 2FA, SMS or email confirmation, seeded for every test case'})` : ' (none needed: no sign-in)'}. Credentials never go in the ZIP.
 - **Submit for review** and the policy attestations.
 
+## 4. Publish
+Approval doesn't publish. **Publish plugin** on the plugin's page asks you to confirm the version it replaces. A new version of a published plugin that changes only skills, listing text or release notes can be approved the moment you submit it: Stacktree's 1.3.0 and 1.3.1 (22 and 23 Oct 2026) went straight to Ready to publish, while 1.2.0, which came with new tools, took 16 days.
+
 Hints need no justification: OpenAI's automated review checks readOnlyHint, destructiveHint and openWorldHint against what each tool does. If it flags one you believe is right, appeal with an explanation.${notes ? `\n\n## Appeal notes (optional)\nYour "justifications" in mcplane.json, for an appeal if review flags a hint:\n\n${notes}` : ''}
 
 ## Traps
@@ -314,6 +317,9 @@ Hints need no justification: OpenAI's automated review checks readOnlyHint, dest
 - Tool changes don't need a new package: OpenAI says its scans pick them up once you're published, after automated checks. Listing changes do. Neither happens on cue: on 6 Oct 2026 a Rescan on a published plugin left its tools table at the reviewed list ("last checked yesterday") and the scanner never connected, and a published plugin's MCP card has no Reconnect. If a new version's test cases use tools added since the last review, wait until the MCPs tab lists them before you submit.
 - Don't fix a duplicate plugin by deleting it and uploading again: deleting can reserve the plugin's name for an unknown time (openai/codex#39508).
 - A rescan doesn't update a submission already in review: it keeps the tools it was submitted with. To change them, cancel the review (back to Draft), reconnect so ChatGPT rediscovers the tools, then resubmit.
+- Keep the plugin installed and connected in your own ChatGPT account. OpenAI's daily MCP scans run on that connection: uninstalling it stops them, and OpenAI emails "Reconnect your plugin … for daily MCP scans". Reinstalling makes a new connection the scans don't use, and the portal's "Reconnect to scan" may not be clickable. Stacktree's live tools kept working and it could still submit, with a "MCP checks need attention" note.
+- MCP Events reach ChatGPT through its live connections, with no new version: minutes after Stacktree's server began advertising events on 22 Oct 2026, ChatGPT ran a task on one, while the portal's MCPs tab still listed no events.
+- The no-upsell rule covers what tools return, not just their descriptions. Limit errors that name a paid plan or carry a billing link reach ChatGPT word for word, and preflight reads descriptions only: check what your tools return at the free tier's limits. Stacktree found its own on 18 Oct 2026 and now strips them for ChatGPT connections.
 - The package takes icons up to 5 MiB, but developer mode's own icon upload (when you add the server by hand to record the demo) takes 10 KB at most.
 
 When it's in: \`mcplane submitted chatgpt --version ${m.version ?? '1.0.0'} --app-id <asdk_app_… from the URL>\`

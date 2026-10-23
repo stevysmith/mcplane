@@ -17,6 +17,33 @@ const json = async (url: string) => {
   return { res, body: res?.ok ? ((await res.json().catch(() => null)) as any) : null };
 };
 
+/**
+ * Without refresh tokens a connection ends when its access token expires, and the client can only
+ * ask the person to sign in again. claude.ai shows Reconnect and nothing reaches the server:
+ * Stacktree's 30-day tokens ended active Claude connections this way until 17 September 2026.
+ * A missing grant_types_supported reads as authorization_code and implicit only (RFC 8414 §2).
+ */
+export function refreshCheck(asm: Record<string, any>): Check {
+  const title = 'Refresh tokens are offered';
+  const grants = asm.grant_types_supported;
+  if (Array.isArray(grants) && grants.includes('refresh_token')) return { id: 'auth.refresh', level: 'pass', title };
+  if (!Array.isArray(grants))
+    return {
+      id: 'auth.refresh',
+      level: 'info',
+      title,
+      detail: 'grant_types_supported is missing',
+      fix: 'A missing list reads as authorization_code and implicit only (RFC 8414). If you issue refresh tokens, add grant_types_supported with refresh_token in it.',
+    };
+  return {
+    id: 'auth.refresh',
+    level: 'warn',
+    title,
+    detail: `grant_types_supported: ${grants.join(', ') || 'empty'}`,
+    fix: 'Issue refresh tokens with the authorization code flow and add refresh_token to grant_types_supported. Without them every connection ends when its access token expires: Claude shows Reconnect, and nothing tells you. Stacktree lost active Claude connections this way until September 2026.',
+  };
+}
+
 export async function authChecks(url: string, opts: { register?: boolean } = {}): Promise<Check[]> {
   const checks: Check[] = [];
   const u = new URL(url);
@@ -67,6 +94,8 @@ export async function authChecks(url: string, opts: { register?: boolean } = {})
       ? { id: 'auth.dcr', level: 'pass', title: 'Dynamic Client Registration is offered' }
       : { id: 'auth.dcr', level: 'warn', title: 'Dynamic Client Registration is offered', fix: 'Offer a registration_endpoint (RFC 7591). Anthropic says DCR works best with its directory, and ChatGPT registers itself this way.', stores: ['claude-connectors', 'chatgpt'] },
   );
+
+  checks.push(refreshCheck(asm));
 
   if (opts.register && asm.registration_endpoint) {
     for (const [who, uris] of Object.entries(REDIRECTS)) {

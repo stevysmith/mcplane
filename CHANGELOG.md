@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0
+
+MCP Events, read the way ChatGPT reads them
+- `readiness.events` now checks events through `initialize` on every server, not just the protocol era it prefers: `events` in the capabilities you answer `initialize` with, and `events/list` answering after it. A server that lists events only on 2026-07-28 requests now gets a warning. ChatGPT finds a plugin's events through `initialize`; Stacktree kept its events to 2026-07-28 requests until 22 October, passed the old check, and ChatGPT watched its published plugin with hourly checks instead. Having no events at all is still only a note.
+
+New check
+- `auth.refresh` (warning): `grant_types_supported` leaves out `refresh_token`, so every connection ends when its access token expires. Claude shows Reconnect and nothing reaches you, which is how Stacktree lost active Claude connections until September. A missing list is a note. Until now only the Vercel Connect checks looked.
+
+ChatGPT pack
+- A new version uploads through **Create draft from ZIP** on the plugin's own page.
+- New Publish step: approval doesn't publish, and an update that changes only skills, listing text or release notes can be approved the moment it's submitted (Stacktree 1.3.0 and 1.3.1, 22 and 23 October; 1.2.0, with new tools, took 16 days).
+- Keep the plugin installed in your own ChatGPT: OpenAI's daily MCP scans run on that connection, and uninstalling it stops them.
+- MCP Events reach ChatGPT through its live connections without a new version, though the portal's MCPs tab doesn't list them.
+- The no-upsell rule covers what tools return, not just descriptions; `tools.no-upsell` says it reads descriptions only.
+
 ## 0.6.0
 
 New ChatGPT checks

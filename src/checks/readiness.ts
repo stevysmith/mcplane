@@ -135,18 +135,47 @@ export function corsCheck(allowOrigin: string | null, allowHeaders: string | nul
 }
 
 /**
- * MCP Events is a draft, not part of 2026-07-28: events/list, events/poll, events/stream and
- * events/subscribe, from the Triggers and Events Working Group. Reported, never a warning.
+ * MCP Events: events/list, events/poll, events/stream and events/subscribe, a draft from the
+ * Triggers and Events Working Group, not part of 2026-07-28. ChatGPT already uses it in Work chats
+ * and Dots: asked to watch something, it runs a task when your server's event fires instead of
+ * scheduling hourly checks. It finds a plugin's events through initialize and the event methods
+ * that follow it, so a server that keeps them to 2026-07-28 requests has none as far as ChatGPT
+ * knows. Stacktree did until 22 October 2026, and ChatGPT watched its published plugin hourly.
+ * Having no events is only a note; having them where ChatGPT can't see them is a warning.
  * https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
  */
-export function eventsCheck(r: RpcReply | null): Check {
-  const title = 'Lists MCP Events (events/list, a draft)';
-  const events = r?.body?.result?.events;
-  if (Array.isArray(events)) return check('events', 'pass', title, { detail: events.length ? events.map((e: { name?: string }) => e.name).join(', ') : 'no event types yet' });
-  if (r?.status === 401) return check('events', 'skip', title, { detail: 'HTTP 401' });
-  return check('events', 'info', title, {
-    detail: `events/list got ${said(r)}`,
-    fix: 'Nothing to do yet. Events is a draft from the Triggers and Events Working Group, not part of 2026-07-28; if it lands, servers declare event types with events/list.',
+export function eventsCheck(o: { modern?: RpcReply | null; init?: RpcReply | null; legacy?: RpcReply | null }): Check {
+  const title = 'Clients that open with initialize find your MCP Events';
+  const types = (r?: RpcReply | null): string[] | null => {
+    const events = r?.body?.result?.events;
+    return Array.isArray(events) ? events.map((e: { name?: string }) => String(e?.name ?? '?')) : null;
+  };
+  const modern = types(o.modern);
+  const legacy = types(o.legacy);
+  const opened = !!o.init && o.init.status < 300 && !!o.init.body?.result;
+  const advertised = opened && o.init!.body.result.capabilities?.events != null;
+  const names = (t: string[]) => (t.length ? t.join(', ') : 'no event types yet');
+
+  if ([o.modern, o.init, o.legacy].some((r) => r?.status === 401) && !modern && !legacy) {
+    return check('events', 'skip', title, { detail: 'HTTP 401', fix: 'Run again with --token <access token>.' });
+  }
+  if (!modern && !legacy && !advertised) {
+    return check('events', 'info', title, {
+      detail: `no MCP Events: events/list got ${said(o.legacy ?? o.modern ?? null)}`,
+      fix: 'Optional. If your server knows when something happens (an order ships, a client comments), declare event types with events/list: ChatGPT can then run a task on the event instead of checking hourly.',
+    });
+  }
+  if (!opened) {
+    return check('events', modern ? 'pass' : 'info', title, { detail: `2026-07-28 requests only (initialize got ${said(o.init ?? null)}): ${names(modern ?? [])}` });
+  }
+  if (advertised && legacy) return check('events', 'pass', title, { detail: `advertised on initialize; events/list: ${names(legacy)}` });
+  const gaps = [
+    advertised ? '' : 'initialize’s capabilities have no events',
+    legacy ? '' : `events/list after initialize got ${said(o.legacy ?? null)}`,
+  ].filter(Boolean);
+  return check('events', 'warn', title, {
+    detail: `${modern ? `2026-07-28 requests list ${names(modern)}, but ` : ''}${gaps.join(', and ')}`,
+    fix: 'ChatGPT finds a plugin’s events through initialize: add events: {} to the capabilities you answer it with, and answer events/list and the other event methods after it, not only on 2026-07-28 requests. Otherwise ChatGPT schedules hourly checks instead, as it did for Stacktree’s published plugin until 22 October 2026.',
   });
 }
 
@@ -195,18 +224,18 @@ export async function readinessChecks(url: string, auth: 'none' | 'oauth', opts:
   if (e.era !== 'auth') {
     const init = await new McpClient(url, bearer).request('initialize', { protocolVersion: MODERN, capabilities: {}, clientInfo: { name: 'mcplane', version: VERSION } }).catch(() => null);
     checks.push(initializeCheck(init, e.era));
+    // Events are read both ways on every server: ChatGPT opens with initialize even where 2026-07-28 works.
+    const c = new McpClient(url, bearer);
+    const opened = await c.initialize().catch(() => null);
+    const legacyEvents = opened && opened.status < 300 ? await c.request('events/list').catch(() => null) : null;
     if (e.era === 'modern') {
       checks.push(modernHeaderCheck(await modern('tools/list')));
-      checks.push(eventsCheck(await modern('events/list')));
-    } else {
-      const c = new McpClient(url, bearer);
-      const opened = await c.initialize().catch(() => null);
-      if (opened && opened.status < 300) {
-        const plain = await c.request('tools/list').catch(() => null);
-        const tagged = await c.request('tools/list', undefined, { headers: { 'mcp-method': 'tools/list', 'mcp-name': 'mcplane-probe' } }).catch(() => null);
-        checks.push(legacyHeaderCheck(plain, tagged));
-        checks.push(eventsCheck(await c.request('events/list').catch(() => null)));
-      }
+      checks.push(eventsCheck({ modern: await modern('events/list'), init: opened, legacy: legacyEvents }));
+    } else if (opened && opened.status < 300) {
+      const plain = await c.request('tools/list').catch(() => null);
+      const tagged = await c.request('tools/list', undefined, { headers: { 'mcp-method': 'tools/list', 'mcp-name': 'mcplane-probe' } }).catch(() => null);
+      checks.push(legacyHeaderCheck(plain, tagged));
+      checks.push(eventsCheck({ init: opened, legacy: legacyEvents }));
     }
     const pre = await fetch(url, {
       method: 'OPTIONS',

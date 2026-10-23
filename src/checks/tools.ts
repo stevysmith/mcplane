@@ -286,7 +286,7 @@ export function toolChecks(tools: Tool[]): Check[] {
   checks.push(
     upsell.length
       ? { id: 'tools.no-upsell', level: 'fail', title: 'No upgrade or pricing copy in tools', detail: upsell.map((t) => t.name).join(', '), fix: 'OpenAI prohibits in-app commerce for digital subscriptions, including freemium upsells. Keep plans and pricing on your site; tool text and errors should not steer users to upgrade.', stores: ['chatgpt'] }
-      : { id: 'tools.no-upsell', level: 'pass', title: 'No upgrade or pricing copy in tools' },
+      : { id: 'tools.no-upsell', level: 'pass', title: 'No upgrade or pricing copy in tools', detail: 'titles and descriptions only: check what your tools return at the free tier’s limits too' },
   );
 
   // ChatGPT extensions (DevDay 2026): entrypoints declared in _meta["openai/ui"]. Reported so they show up in reviews and drift.

@@ -97,6 +97,7 @@ Auth (when `auth` is `oauth`), from Stacktree's eight ChatGPT rounds
 - An unauthenticated call gets 401 with `WWW-Authenticate` pointing at `resource_metadata`, never 403 (a 403 reads as "unable to connect").
 - `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` both resolve, on the MCP host itself, and agree with each other.
 - Dynamic Client Registration returns 201 for ChatGPT's redirect URIs and for native schemes (`cursor://`, `grok://`): Stacktree rejected RFC 8252 schemes and locked out every native client.
+- `grant_types_supported` includes `refresh_token`: Stacktree's 30-day access tokens ended active Claude connections with no signal until it added refresh tokens (September 2026).
 - The authorize endpoint returns a working sign-in page, not a blank page or a marketing homepage (Stacktree's reviewer registered, then stalled at sign-in because the post-sign-in redirect was empty).
 - Plain GETs along the sign-in chain (the authorization endpoint, the sign-in page, the identity-provider hosts it loads) meet no bot challenge (`cf-mitigated: challenge`) and no 403 (a challenged sign-in host stops reviewers while every check on the MCP server passes).
 - CORS preflight on `/mcp` answers 204 with the right headers.

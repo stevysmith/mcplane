@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { test } from 'node:test';
 import { ardFindings, ardManifest, describesServer, validateArd } from '../src/checks/ard.js';
+import { refreshCheck } from '../src/checks/auth.js';
 import { wellKnown, type Discovery, type Doc } from '../src/checks/oauth.js';
-import { cimdCheck, corsCheck, eraCheck, eraOf, eventsCheck, initializeCheck, issCheck, issuerCheck, legacyHeaderCheck, modernHeaderCheck } from '../src/checks/readiness.js';
+import { cimdCheck, corsCheck, eraCheck, eraOf, eventsCheck, initializeCheck, issCheck, issuerCheck, legacyHeaderCheck, modernHeaderCheck, readinessChecks } from '../src/checks/readiness.js';
 import { clientCreation, vercelChecks } from '../src/checks/vercel.js';
 import { caseSlug, evalSuite, frontmatter, toolId } from '../src/evals.js';
 import { parseConnectDirectory } from '../src/listings.js';
@@ -162,10 +164,60 @@ test('Mcp-Method and Mcp-Name: tolerated, and allowed by CORS', () => {
   assert.equal(corsCheck('*', 'content-type, mcp-protocol-version')!.level, 'info');
 });
 
-test('MCP Events is a draft: reported, never a warning', () => {
-  assert.equal(eventsCheck(reply(200, { result: { events: [{ name: 'order.shipped' }] } })).level, 'pass');
-  assert.equal(eventsCheck(reply(404, { error: { code: -32601 } })).level, 'info');
-  assert.equal(eventsCheck(null).level, 'info');
+test('MCP Events: a note when there are none, a warning when initialize can’t see them', () => {
+  const listed = reply(200, { result: { events: [{ name: 'order.shipped' }] } });
+  const unknown = reply(200, { error: { code: -32601, message: 'Method not found' } });
+  const init = (capabilities: Record<string, unknown>) => reply(200, { result: { protocolVersion: '2025-06-18', capabilities } });
+  assert.equal(eventsCheck({ init: init({ tools: {}, events: {} }), legacy: listed }).level, 'pass');
+  assert.equal(eventsCheck({ modern: listed, init: init({ tools: {}, events: {} }), legacy: listed }).level, 'pass');
+  assert.equal(eventsCheck({ init: init({ tools: {} }), legacy: unknown }).level, 'info', 'no events at all is optional');
+  assert.equal(eventsCheck({ modern: unknown, init: init({ tools: {} }), legacy: unknown }).level, 'info');
+  // Stacktree until 22 Oct 2026: events on 2026-07-28 requests only, so ChatGPT polled hourly.
+  const stacktree = eventsCheck({ modern: listed, init: init({ tools: {} }), legacy: unknown });
+  assert.equal(stacktree.level, 'warn');
+  assert.match(stacktree.detail!, /order\.shipped.*initialize’s capabilities have no events.*events\/list after initialize got/);
+  assert.equal(eventsCheck({ init: init({ tools: {} }), legacy: listed }).level, 'warn', 'listed but not advertised');
+  assert.equal(eventsCheck({ init: init({ tools: {}, events: {} }), legacy: unknown }).level, 'warn', 'advertised but not answered');
+  assert.equal(eventsCheck({ modern: listed, init: reply(400, { error: { code: -32600 } }) }).level, 'pass', 'a modern-only server has no initialize to check');
+  assert.equal(eventsCheck({ init: reply(401, null), legacy: null }).level, 'skip');
+});
+
+test('readinessChecks reads events through initialize on a dual-era server', async () => {
+  // Stacktree's /mcp before and after 22 Oct 2026: events on 2026-07-28 requests, then in both eras.
+  for (const [bothEras, want] of [[false, 'warn'], [true, 'pass']] as const) {
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        if (req.method !== 'POST') return res.writeHead(204).end();
+        const msg = JSON.parse(body);
+        if (msg.id === undefined) return res.writeHead(202).end();
+        const modern = msg.params?._meta?.['io.modelcontextprotocol/protocolVersion'] === '2026-07-28';
+        const send = (payload: object) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, ...payload }));
+        if (msg.method === 'initialize') return send({ result: { protocolVersion: '2025-11-25', capabilities: bothEras ? { tools: {}, events: {} } : { tools: {} }, serverInfo: { name: 't', version: '1' } } });
+        if (modern && msg.method === 'server/discover') return send({ result: { supportedVersions: ['2026-07-28', '2025-11-25'] } });
+        if ((modern || bothEras) && msg.method === 'events/list') return send({ result: { events: [{ name: 'feedback.created' }] } });
+        if (msg.method === 'tools/list') return send({ result: { tools: [] } });
+        return send({ error: { code: -32601, message: 'Method not found' } });
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    try {
+      const checks = await readinessChecks(`http://127.0.0.1:${(server.address() as { port: number }).port}/mcp`, 'none');
+      const c = checks.find((x) => x.id === 'readiness.events');
+      assert.equal(c?.level, want, JSON.stringify(c));
+    } finally {
+      server.close();
+    }
+  }
+});
+
+test('refresh tokens: a warning when the metadata leaves them out, a note when it says nothing', () => {
+  assert.equal(refreshCheck({ grant_types_supported: ['authorization_code', 'refresh_token'] }).level, 'pass');
+  const none = refreshCheck({ grant_types_supported: ['authorization_code'] });
+  assert.equal(none.level, 'warn');
+  assert.match(none.fix!, /Reconnect/);
+  assert.equal(refreshCheck({}).level, 'info');
 });
 
 test('issuer, CIMD and RFC 9207 from the discovery documents', () => {
