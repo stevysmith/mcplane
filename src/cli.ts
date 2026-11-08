@@ -25,13 +25,14 @@ Usage
       --register                      Also test OAuth client registration (writes test clients)
       --token <token>                 Access token for servers behind sign-in (or MCPLANE_TOKEN)
       --sign-in <url>                 A sign-in page your consent screen uses, checked for bot walls (repeatable)
+      --muse-token <token>            Check the file Muse's Verify server step asks for, with the token it shows
   mcplane submitted <store>           Record a submission and log it to Review Times
       --date YYYY-MM-DD --kind new|update|resubmission --version x.y.z
       --app-id asdk_app_...           ChatGPT: your app id, so its draft date is checked
       --private                       Keep it local; don't log to Review Times
   mcplane decided <store> approved|rejected|withdrawn [--date YYYY-MM-DD]
   mcplane status                      Every submission, how long it's waited, and the store's typical wait
-  mcplane pack <store>                Write a submission pack to .mcplane/packs (chatgpt, claude-connectors, vercel-connect, cursor, muse, directories)
+  mcplane pack <store>                Write a submission pack to .mcplane/packs (chatgpt, claude-connectors, claude-plugins, vercel-connect, cursor, muse, directories)
       pack ard                        An ARD manifest for /.well-known/ard.json
       pack claude-eval                A "claude plugin eval" suite from your review tests
       --tools <file>                  A saved tools/list result, for servers behind sign-in (or pass --token)
@@ -80,6 +81,7 @@ async function main() {
       token: { type: 'string' },
       tools: { type: 'string' },
       'sign-in': { type: 'string', multiple: true },
+      'muse-token': { type: 'string' },
       date: { type: 'string' },
       kind: { type: 'string' },
       version: { type: 'string' },
@@ -134,7 +136,7 @@ async function main() {
     if (values['sign-in']?.length) m.server.signIn = [...(m.server.signIn ?? []), ...values['sign-in']];
     const stores = (values.store ?? []) as StoreId[];
     for (const s of stores) if (!(s in STORE_NAMES)) throw new Error(`Unknown store "${s}". Stores: ${Object.keys(STORE_NAMES).join(', ')}`);
-    const r = await preflight(m, { stores, register: values.register, token: values.token ?? process.env.MCPLANE_TOKEN });
+    const r = await preflight(m, { stores, register: values.register, token: values.token ?? process.env.MCPLANE_TOKEN, dir: values.url ? undefined : process.cwd(), museToken: values['muse-token'] });
     if (values.json) console.log(JSON.stringify(r, null, 2));
     else printPreflight(r, { verbose: values.verbose });
     process.exitCode = r.checks.some((c) => c.level === 'fail') ? 1 : 0;

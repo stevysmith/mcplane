@@ -67,7 +67,7 @@ One file in the repo, the equivalent of fastlane's metadata folder.
 | ChatGPT | platform.openai.com (accepts a submission JSON upload) | pack |
 | Claude connectors / plugins | claude.ai/directory/manage/new | pack |
 | Cursor | cursor.com/marketplace/publish | pack |
-| Muse | muse.ai/platform | pack |
+| Muse | platform.muse.ai | pack, Verify server check |
 
 Final clicks and policy attestations always stay with the developer.
 
@@ -83,7 +83,9 @@ Server
 Tools
 - Every tool has a `title` and explicit `readOnlyHint`, `destructiveHint`, `openWorldHint` (OpenAI requires explicit true/false and checks them automatically, no justification needed; Anthropic requires title + hints).
 - `outputSchema` declared (OpenAI recommends; results must then carry `structuredContent`).
-- Descriptions contain no instructions about model behaviour or other tools (Anthropic's policy attestation).
+- Descriptions contain no instructions about model behavior or other tools (Anthropic's policy attestation, and its connector review criteria): no "call this before any request", "then follow it", "reach for this whenever", words in capitals or hidden characters. Naming a sibling tool to describe a workflow is fine.
+- Descriptions don't name other companies' AI products (Claude rejects promotion; OpenAI's scan held Stacktree's updates for naming them).
+- No tools that move money or handle crypto (ChatGPT's attestation; Claude doesn't accept connectors that transfer money or crypto), and no inputs that ask for the user's task or the conversation (Claude).
 - No write tool that authorises by a bearer token passed through the chat (Anthropic rejected exactly this).
 
 Listing
@@ -92,6 +94,7 @@ Listing
 - Support is a URL, not only an email (OpenAI).
 - Length limits: subtitle ≤ 30 (ChatGPT), one-liner ≤ 200 (Claude), description ≤ 2000.
 - ChatGPT domain challenge (`/.well-known/openai-apps-challenge`) present when submitting there.
+- Muse's Verify server file (`/.well-known/muse-challenge/<token>`, body exactly `muse-challenge=<token>`, HTTPS 443, no sign-in or redirect), with `--muse-token`.
 
 Auth (when `auth` is `oauth`), from Stacktree's eight ChatGPT rounds
 - An unauthenticated call gets 401 with `WWW-Authenticate` pointing at `resource_metadata`, never 403 (a 403 reads as "unable to connect").
@@ -111,6 +114,7 @@ Reviewer access (auth servers)
 
 Plugin repositories (Claude plugins, Cursor, Grok)
 - Public repo; `claude plugin validate` passes; no root `SKILL.md` shadowing the plugin's own skills.
+- Claude plugin directory policy, read from the plugin's folder: from an unverified organization, only Markdown, text, JSON, YAML and PNG, JPEG, GIF, WebP or ICO images; no `#!` files, package manager files or non-UTF-8 text. No credential read from the user's machine and sent to a server (held for a reviewer). The icon is a square PNG (with an SVG the directory shows the GitHub owner's avatar).
 - Grok: submitted from an organisation, not a personal account ("will be questioned").
 
 Portal traps (in every pack)

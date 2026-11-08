@@ -127,8 +127,17 @@ export interface Manifest {
     /** Offer an API key connection method: where users create a key, and the header it's sent in. */
     apiKey?: { docs?: string; header?: string };
   };
-  /** The Claude Code plugin that ships this server, for "mcplane pack claude-eval". Read from the plugin repo when left out. */
-  claudePlugin?: { name?: string; server?: string };
+  /** The Claude Code plugin that ships this server, for "mcplane pack claude-eval" and the plugin directory's file checks. */
+  claudePlugin?: {
+    /** The plugin's name in its plugin.json. Read from the plugin repo when left out. */
+    name?: string;
+    /** The server's key in the plugin's .mcp.json. Read from the plugin repo when left out. */
+    server?: string;
+    /** The plugin's folder, relative to mcplane.json. Defaults to mcplane.json's own folder when it holds .claude-plugin/plugin.json. */
+    dir?: string;
+    /** Your organization is Verified by Anthropic, which exempts it from the directory's file-type rules. */
+    verified?: boolean;
+  };
   /** Named workflows, run with "mcplane <lane>": each step is a command line without "mcplane". */
   lanes?: Record<string, string[]>;
   /** How reviewers get in, for servers behind sign-in. Never put the password here; say where it lives. */

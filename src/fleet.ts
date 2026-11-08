@@ -88,7 +88,7 @@ export async function fleet(root = process.cwd(), opts: { checks?: boolean; toke
     };
     if (!p.manifest || opts.checks === false) return row;
     try {
-      const r = await preflight(p.manifest, { token: opts.token });
+      const r = await preflight(p.manifest, { token: opts.token, dir: p.dir });
       row.blocking = r.checks.filter((c) => c.level === 'fail').length;
       row.toReview = r.checks.filter((c) => c.level === 'warn').length;
       const d = await drift(p.manifest, storesOf(p.manifest), { token: opts.token }, p.dir);

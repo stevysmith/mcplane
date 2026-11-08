@@ -6,6 +6,7 @@ import { ardChecks } from './checks/ard.js';
 import { authChecks } from './checks/auth.js';
 import { chainChecks } from './checks/chain.js';
 import { listingChecks, repoChecks } from './checks/listing.js';
+import { museChallengeCheck } from './checks/muse.js';
 import { discover } from './checks/oauth.js';
 import { readinessChecks } from './checks/readiness.js';
 import { serverChecks } from './checks/server.js';
@@ -22,7 +23,7 @@ export interface PreflightResult {
 }
 
 /** Things no script can see, which have still cost real submissions. */
-function reminders(m: Manifest, stores: StoreId[]): string[] {
+function reminders(m: Manifest, stores: StoreId[], opts: { museToken?: string } = {}): string[] {
   const r: string[] = [];
   if (m.server.auth === 'oauth') {
     r.push('Give reviewers a demo account a stranger can use: email and password (not your Google or SSO login), email already confirmed, no 2FA or SMS, seeded with data for every test case. Re-check the seed right before submitting.');
@@ -39,15 +40,20 @@ function reminders(m: Manifest, stores: StoreId[]): string[] {
   }
   if (stores.includes('claude-connectors') || stores.includes('claude-plugins')) {
     if (stores.includes('claude-connectors')) r.push('Claude connectors are submitted from an organisation’s admin settings (claude.ai/directory/manage), so you need admin rights in a paid org. The tool list is synced from your server when you submit; it is not an editable field.');
+    if (stores.includes('claude-connectors')) r.push('A Claude connector listing that is In review can be updated in place (Edit > Open the full editor, then Save and update submission). Withdrawing frees the slug but loses your place in the queue. "mcplane pack claude-connectors" has the steps.');
     if (stores.includes('claude-plugins')) r.push('Run "claude plugin validate --strict" in the plugin repo; the portal validates every commit on the branch it tracks.');
+    if (stores.includes('claude-plugins')) r.push('Claude plugins: an Approved version isn’t live until it’s published, and when the Overview tab’s Auto-publish row says it doesn’t apply, every version waits for an Anthropic reviewer. Read the Review tab, not the header banner, which can still say a publish is waiting after the newest version was refused by policy.');
     r.push('Claude: "Passed review" is not the same as listed. Check claude.ai/directory for your listing after approval; with the new portal you choose when to publish.');
+  }
+  if (stores.includes('muse') && !opts.museToken) {
+    r.push('Muse’s Verify server step gives you a token to serve at /.well-known/muse-challenge/<token> on your MCP host. Check it with "mcplane preflight --store muse --muse-token <token>" before you press Verify: the token expires about 24 hours after it’s shown, and Muse allows one attempt a minute.');
   }
   if (stores.includes('vercel-connect') && m.server.auth === 'oauth') r.push(...VERCEL_REMINDERS);
   return r;
 }
 
 /** Runtime-neutral: fetch only. Node adds socket checks (TLS 1.2) through extraChecks; see preflight-node. */
-export async function preflight(m: Manifest, opts: { stores?: StoreId[]; register?: boolean; token?: string; extraChecks?: SocketCheck[] } = {}): Promise<PreflightResult> {
+export async function preflight(m: Manifest, opts: { stores?: StoreId[]; register?: boolean; token?: string; extraChecks?: SocketCheck[]; museToken?: string } = {}): Promise<PreflightResult> {
   const stores = opts.stores?.length ? opts.stores : storesOf(m);
   const auth = m.server.auth ?? 'none';
   const server = await serverChecks(m.server.url, auth, opts.token, opts.extraChecks);
@@ -55,23 +61,26 @@ export async function preflight(m: Manifest, opts: { stores?: StoreId[]; registe
   const oauth = auth === 'oauth' ? await discover(m.server.url).catch(() => null) : null;
   // A server that doesn't answer at all has already failed; probing it for the next revision adds nothing.
   const down = server.checks.some((c) => c.id === 'server.reachable' && c.level === 'fail');
-  const [authC, chain, listing, repo, ard, readiness] = await Promise.all([
+  const [authC, chain, listing, repo, ard, readiness, muse] = await Promise.all([
     auth === 'oauth' ? authChecks(m.server.url, { register: opts.register }) : Promise.resolve([]),
     auth === 'oauth' ? chainChecks(m, oauth).catch(() => []) : Promise.resolve([]),
     listingChecks(m, server.tools, stores),
     repoChecks(m, stores),
     ardChecks(m),
     down ? Promise.resolve([]) : readinessChecks(m.server.url, auth, { token: opts.token, oauth }),
+    opts.museToken ? museChallengeCheck(m.server.url, opts.museToken).then((c) => [c]) : Promise.resolve([]),
   ]);
   const vercel = stores.includes('vercel-connect') ? vercelChecks(m, oauth) : [];
-  const all = [...server.checks, ...authC, ...chain, ...toolChecks(server.tools), ...listing, ...repo, ...vercel, ...ard, ...readiness];
-  // Keep checks that apply to every store or to one we're submitting to.
-  const checks = all.filter((c) => !c.stores?.length || c.stores.some((s) => stores.includes(s)));
-  return { checks, reminders: reminders(m, stores), stores };
+  const tools = toolChecks(server.tools, { own: [m.title, m.name, m.author?.name ?? ''] });
+  const all = [...server.checks, ...authC, ...chain, ...tools, ...listing, ...repo, ...vercel, ...ard, ...readiness];
+  // Keep checks that apply to every store or to one we're submitting to. A Muse token means you're verifying for Muse now.
+  const checks = [...all.filter((c) => !c.stores?.length || c.stores.some((s) => stores.includes(s))), ...muse];
+  return { checks, reminders: reminders(m, stores, opts), stores };
 }
 
 export { draftManifest, forStore, storesOf, SCHEMA_URL } from './draft.js';
 export { toolChecks } from './checks/tools.js';
+export { museChallengeCheck } from './checks/muse.js';
 export { validateArd, ardManifest } from './checks/ard.js';
 export { STORE_NAMES } from './types.js';
 export type { Check, Level, Manifest, StoreId, Tool } from './types.js';

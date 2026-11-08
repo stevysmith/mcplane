@@ -207,7 +207,7 @@ export async function drift(m: Manifest, stores: StoreId[], opts: { token?: stri
     }
     if (store === 'claude-connectors') {
       if (d.added.length || d.removed.length)
-        items.push({ store, level: 'action', what: `Tool list changed ${since}: ${summary}`, todo: 'Edit the listing’s tool names in claude.ai/directory/manage (changes are reviewed before going live).' });
+        items.push({ store, level: 'action', what: `Tool list changed ${since}: ${summary}`, todo: 'In claude.ai/directory/manage, Edit, then Open the full editor: Sync from server replaces the tool names the listing advertises, and Save and update submission saves it (changes are reviewed before going live; a listing In review updates in place, so don’t withdraw).' });
       const hintChanges = d.changed.filter((c) => c.fields.some((f) => f.includes('Hint')));
       if (hintChanges.length)
         items.push({ store, level: 'action', what: `Safety hints changed: ${hintChanges.map((c) => `${c.tool} (${c.fields.filter((f) => f.includes('Hint')).join(', ')})`).join('; ')}`, todo: 'Reviewers check hints against your read/write answer. Update it if needed and add a line to the listing’s Additional notes.' });
@@ -217,7 +217,7 @@ export async function drift(m: Manifest, stores: StoreId[], opts: { token?: stri
     }
     if (store === 'claude-plugins' || store === 'cursor') {
       if (head && snap.repoSha && head !== snap.repoSha)
-        items.push({ store, level: store === 'cursor' ? 'action' : 'info', what: `Plugin repo moved on ${since} (${snap.repoSha.slice(0, 7)} → ${head.slice(0, 7)})`, todo: store === 'cursor' ? 'Cursor pins marketplace plugins to the commit that was current when they were added and doesn’t document updates. Resubmit at cursor.com/marketplace/publish, or ask Cursor to re-pin.' : 'The portal picks up commits on the branch it tracks (push webhook or scheduled check) and validates them; a reviewer publishes each version unless you have auto-publish. Check claude.ai/directory/manage.' });
+        items.push({ store, level: store === 'cursor' ? 'action' : 'info', what: `Plugin repo moved on ${since} (${snap.repoSha.slice(0, 7)} → ${head.slice(0, 7)})`, todo: store === 'cursor' ? 'Cursor pins marketplace plugins to the commit that was current when they were added and doesn’t document updates. Resubmit at cursor.com/marketplace/publish, or ask Cursor to re-pin.' : 'The portal picks up commits on the branch it tracks (push webhook or scheduled check) and runs its policy check on them. An Approved version isn’t live until it’s published, and when the Overview tab’s Auto-publish row says it doesn’t apply, every version waits for an Anthropic reviewer. Read the Review tab in claude.ai/directory/manage, not the header banner, which can still say a publish is waiting after the newest version was refused by policy.' });
     }
     if (store === 'grok' && head) {
       const pinned = await grokPin(m.name);
@@ -225,7 +225,7 @@ export async function drift(m: Manifest, stores: StoreId[], opts: { token?: stri
         items.push({ store, level: 'info', what: `Grok serves ${pinned.slice(0, 7)}; your repo is at ${head.slice(0, 7)}`, todo: 'xAI bumps pins daily. If it’s still behind tomorrow, "mcplane publish grok" opens a pin-bump pull request.' });
     }
     if (store === 'muse' && (toolChange || listingChange.length)) {
-      items.push({ store, level: 'info', what: `Changed ${since}: ${[summary, listingChange.length && `listing ${listingChange.join(', ')}`].filter(Boolean).join('; ')}`, todo: 'Meta hasn’t published an update process yet. Open the submission in muse.ai/platform, which shows its stage (Submitted, then In review) and three requirements, and update anything that shows old details. If tools changed, update the Read, Write and Sensitive annotations you keep alongside the connector too.' });
+      items.push({ store, level: 'info', what: `Changed ${since}: ${[summary, listingChange.length && `listing ${listingChange.join(', ')}`].filter(Boolean).join('; ')}`, todo: 'Meta hasn’t published an update process yet. Open the submission in platform.muse.ai, which shows its stage (Submitted, then In review) and three tasks (Business verification, Data processing questionnaire, Technical details), and update anything that shows old details. If tools changed, update the Read, Write and Sensitive annotations you keep alongside the connector too.' });
     }
     if (store === 'mcp-registry' && (toolChange || listingChange.length)) {
       items.push({ store, level: 'action', what: `Changed ${since}`, todo: 'Bump the version and run "mcplane publish mcp-registry".' });

@@ -3,10 +3,12 @@ import { execFileSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { test } from 'node:test';
 import { schemaProblems } from '../src/agent-plugins.js';
 import { listingChecks } from '../src/checks/listing.js';
+import { museChallengeCheck, museChallengeUrl } from '../src/checks/muse.js';
+import { credentialReads, pluginChecks, policyFindings } from '../src/checks/plugin.js';
 import { iconProblems, imageInfo } from '../src/images.js';
 import { packFor, parseToolsFile } from '../src/packs.js';
 import { bundleSkills, frontMatter } from '../src/skills.js';
@@ -256,7 +258,7 @@ test('pack chatgpt checks test cases against a saved tool list', async () => {
   }
 });
 
-test('pack muse: the portal’s three requirements and per-tool annotations from a saved tool list', async () => {
+test('pack muse: the portal’s three tasks, Verify server and per-tool annotations from a saved tool list', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mcplane-pack-'));
   const tools = [
     { name: 'get_order', annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false } },
@@ -270,14 +272,59 @@ test('pack muse: the portal’s three requirements and per-tool annotations from
   const md = String(pack.files.find((f) => f.path === 'muse.md')!.content);
   assert.match(md, /Submitted then In review/);
   assert.match(md, /\*\*Business verification:\*\* a code sent by email\. Each "Verify email" click sends a new code and invalidates the last one/);
-  assert.match(md, /\*\*Questionnaire:\*\* your company details and where data is stored/);
-  assert.match(md, /\*\*Integration credentials:\*\* none required: for an authless MCP/);
-  assert.match(md, /"complete the additional intake questions"/);
+  assert.match(md, /\*\*Data processing questionnaire:\*\* your company details and where data is stored/);
+  assert.match(md, /\*\*Technical details:\*\* a wizard in five steps: Technical specs, Credentials, Verify server, Test and MCP listing/);
+  assert.match(md, /\*\*Credentials:\*\* none required: for an authless MCP/);
+  assert.match(md, /Publish https:\/\/mcp\.acme\.dev\/\.well-known\/muse-challenge\/<token> with a body of exactly `muse-challenge=<token>`/);
+  assert.match(md, /mcplane preflight --store muse --muse-token <token>/);
+  assert.match(md, /Verify before you run Test, since verifying asks for the test again/);
+  assert.match(md, /expires about 24 hours after it's shown, and Muse allows one attempt a minute/);
+  assert.match(md, /"We couldn't confirm what happened\. Your verification is reloaded; check it before you try again\." three times, and no request ever reached the server/);
   assert.match(md, /- get_order: Read\n- cancel_order: Write/);
   assert.match(md, /hasn't published an update process yet/);
   assert.doesNotMatch(md, /gives no status/);
   const oauth = await packFor({ ...m, server: { ...m.server, auth: 'oauth' } }, 'muse', { dir, tools: 'tools.json' });
-  assert.match(String(oauth.files[0].content), /\*\*Integration credentials:\*\* a test API key or similar/);
+  assert.match(String(oauth.files[0].content), /\*\*Credentials:\*\* a test API key or similar/);
+  const port = await packFor({ ...m, server: { ...m.server, url: 'https://mcp.acme.dev:8443/mcp' } }, 'muse', { dir, tools: 'tools.json' });
+  assert.deepEqual(port.problems, ["Muse verifies your server over HTTPS on port 443, and https://mcp.acme.dev:8443 isn't"]);
+});
+
+/* ---------------- Muse: Verify server ---------------- */
+
+test('museChallengeCheck wants exactly "muse-challenge=<token>" as plain text, with no redirect or sign-in', async () => {
+  const token = 'tok_123';
+  const seen: (string | undefined)[] = [];
+  const { server, url } = await serve((req, res) => {
+    seen.push(req.headers.authorization ?? req.headers.cookie);
+    if (req.url === '/ok') res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end(`muse-challenge=${token}`);
+    else if (req.url === '/newline') res.writeHead(200, { 'content-type': 'text/plain' }).end(`muse-challenge=${token}\n`);
+    else if (req.url === '/html') res.writeHead(200, { 'content-type': 'text/plain' }).end('<!doctype html><html><body>App</body></html>');
+    else if (req.url === '/json') res.writeHead(200, { 'content-type': 'application/json' }).end(`muse-challenge=${token}`);
+    else if (req.url === '/redirect') res.writeHead(301, { location: '/ok' }).end();
+    else if (req.url === '/login') res.writeHead(401).end();
+    else res.writeHead(404).end();
+  });
+  try {
+    const check = (path: string) => museChallengeCheck('https://mcp.acme.dev/mcp', token, { url: `${url}${path}` });
+    const ok = await check('/ok');
+    assert.equal(ok.level, 'pass');
+    assert.deepEqual(ok.stores, ['muse']);
+    assert.equal((await check('/newline')).level, 'warn');
+    assert.match((await check('/json')).detail!, /content type is application\/json/);
+    assert.match((await check('/html')).detail!, /answers with a web page/);
+    assert.match((await check('/redirect')).detail!, /HTTP 301 redirect to \/ok/);
+    assert.match((await check('/login')).detail!, /HTTP 401: the file needs sign-in/);
+    assert.match((await check('/missing')).detail!, /HTTP 404/);
+    assert.ok(seen.every((h) => h === undefined), 'no token or cookie is sent');
+    const count = seen.length;
+    const http = await museChallengeCheck(`${url}/mcp`, token);
+    assert.equal(http.level, 'fail');
+    assert.match(http.detail!, /isn't HTTPS on port 443/);
+    assert.equal(seen.length, count, 'a server that is not on HTTPS 443 is not fetched');
+    assert.equal(museChallengeUrl('https://mcp.acme.dev/mcp', token), 'https://mcp.acme.dev/.well-known/muse-challenge/tok_123', 'the file is on the MCP host');
+  } finally {
+    server.close();
+  }
 });
 
 /* ---------------- preflight: the icon and the package description ---------------- */
@@ -308,4 +355,174 @@ test('listing checks: a local icon, any image format, and the plugin description
   } finally {
     server.close();
   }
+});
+
+/* ---------------- Claude plugin directory ---------------- */
+
+const enc = (s: string) => new TextEncoder().encode(s);
+
+/** A plugin folder: .claude-plugin/plugin.json with this icon, plus the given files. */
+async function pluginFolder(icon: string | undefined, files: Record<string, string | Uint8Array>): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'mcplane-plugin-'));
+  await mkdir(join(dir, '.claude-plugin'), { recursive: true });
+  await writeFile(join(dir, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'acme', version: '1.0.0', ...(icon ? { icon } : {}) }));
+  for (const [path, data] of Object.entries(files)) {
+    await mkdir(join(dir, ...path.split('/').slice(0, -1)), { recursive: true });
+    await writeFile(join(dir, ...path.split('/')), data);
+  }
+  return dir;
+}
+
+const plugin: Manifest = { name: 'acme', title: 'Acme', server: { url: 'https://mcp.acme.dev/mcp' }, repository: 'https://github.com/acme/acme-plugin', stores: ['claude-plugins'] };
+
+test('policyFindings: what the plugin directory refuses from an unverified organization', () => {
+  const f = (path: string, data: string | Uint8Array) => ({ path, data: typeof data === 'string' ? enc(data) : data });
+  const found = policyFindings(
+    [
+      f('.claude-plugin/plugin.json', '{"name":"acme","icon":"./assets/icon.svg"}'),
+      f('skills/publish/SKILL.md', '---\nname: publish\n---\nPublish.'),
+      f('README', 'Acme'),
+      f('LICENSE', 'MIT'),
+      f('.gitignore', 'node_modules\n'),
+      f('assets/icon.svg', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>'),
+      f('assets/logo.png', png(512, 512)),
+      f('config.yml', 'a: 1'),
+      f('docs/diagram.svg', '<svg/>'),
+      f('scripts/run.sh', '#!/bin/sh\n'),
+      f('skills/publish/run.md', '#!/usr/bin/env node\n'),
+      f('package.json', '{}'),
+      f('requirements.txt', 'requests'),
+      f('notes.txt', new Uint8Array([0x61, 0x00, 0x62])),
+      f('latin1.md', new Uint8Array([0x63, 0x61, 0x66, 0xe9])),
+      f('LICENSE.md', '#!not really'),
+    ],
+    './assets/icon.svg',
+  );
+  assert.deepEqual(found, [
+    { path: 'docs/diagram.svg', why: 'not an allowed type' },
+    { path: 'scripts/run.sh', why: 'not an allowed type' },
+    { path: 'skills/publish/run.md', why: 'starts with #!' },
+    { path: 'package.json', why: 'package manager file' },
+    { path: 'requirements.txt', why: 'package manager file' },
+    { path: 'notes.txt', why: 'not UTF-8 text, or holds a NUL byte' },
+    { path: 'latin1.md', why: 'not UTF-8 text, or holds a NUL byte' },
+    { path: 'LICENSE.md', why: 'starts with #!' },
+  ]);
+});
+
+test('credentialReads: an env var or key file sent to a server, not userConfig, CI or local use', () => {
+  const f = (path: string, data: string) => ({ path, data: enc(data) });
+  const reads = credentialReads([
+    f('skills/publish/SKILL.md', 'curl -H "Authorization: Bearer $ACME_API_KEY" https://api.acme.dev/publish'),
+    f('.mcp.json', '{"mcpServers":{"acme":{"url":"https://mcp.acme.dev/mcp","headers":{"Authorization":"Bearer ${ACME_TOKEN}"}}}}'),
+    f('skills/pay/SKILL.md', 'Read ~/.acme/wallet.json and POST it to https://pay.acme.dev'),
+    f('skills/ok/SKILL.md', 'curl https://api.acme.dev -H "x-key: $CLAUDE_PLUGIN_OPTION_API_KEY" ${user_config.api_key}'),
+    f('.github/workflows/ci.yml', 'run: curl -H "Authorization: $GITHUB_TOKEN" https://api.github.com'),
+    f('skills/local/SKILL.md', 'Export $ACME_API_KEY before you start.'),
+  ]);
+  assert.deepEqual(reads, [
+    { path: 'skills/publish/SKILL.md', reads: ['$ACME_API_KEY'] },
+    { path: '.mcp.json', reads: ['$ACME_TOKEN'] },
+    { path: 'skills/pay/SKILL.md', reads: ['~/.acme/wallet.json'] },
+  ]);
+});
+
+test('pluginChecks: file policy, credential forward and icon, from the plugin folder', async () => {
+  const dir = await pluginFolder('./assets/icon.svg', {
+    'assets/icon.svg': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"/>',
+    'skills/publish/SKILL.md': '---\nname: publish\ndescription: Publish.\n---\ncurl -H "Authorization: Bearer $ACME_API_KEY" https://api.acme.dev\n',
+    'scripts/publish.mjs': 'console.log(1)\n',
+    'package.json': '{}',
+    'node_modules/x/index.js': 'skipped',
+    '.DS_Store': new Uint8Array([0, 0, 0, 1]),
+  });
+  const by = Object.fromEntries((await pluginChecks(plugin, dir)).map((c) => [c.id, c]));
+  assert.equal(by['plugin.file-types'].level, 'fail');
+  assert.deepEqual(by['plugin.file-types'].stores, ['claude-plugins']);
+  assert.equal(by['plugin.file-types'].detail, 'package manager file: package.json; not an allowed type: scripts/publish.mjs');
+  assert.match(by['plugin.file-types'].fix!, /"Files outside the allowed types accepted only from Verified organizations"/);
+  assert.match(by['plugin.file-types'].fix!, /pre-submission-checklist\.md\) is looser/);
+  assert.equal(by['plugin.credential-forward'].level, 'warn');
+  assert.equal(by['plugin.credential-forward'].detail, 'skills/publish/SKILL.md ($ACME_API_KEY)');
+  assert.match(by['plugin.credential-forward'].fix!, /MCP_FORWARDS_CREDENTIAL_ENV.*"Update adds credential forward".*userConfig in plugin\.json, marked sensitive: true/);
+  assert.equal(by['plugin.icon'].level, 'warn');
+  assert.equal(by['plugin.icon'].detail, './assets/icon.svg is SVG, 64×64');
+  assert.match(by['plugin.icon'].fix!, /256 px PNG.*GitHub repo owner’s avatar.*512 px worked/);
+
+  const verified = Object.fromEntries((await pluginChecks({ ...plugin, claudePlugin: { verified: true } }, dir)).map((c) => [c.id, c.level]));
+  assert.equal(verified['plugin.file-types'], 'info', 'Verified organizations are exempt');
+
+  const clean = await pluginFolder('./assets/icon.png', { 'assets/icon.png': png(512, 512), 'skills/publish/SKILL.md': '---\nname: publish\ndescription: Publish.\n---\nUse the publish_html tool.\n', LICENSE: 'MIT', '.gitignore': 'node_modules\n' });
+  const ok = await pluginChecks(plugin, clean);
+  assert.deepEqual(ok.map((c) => [c.id, c.level]), [['plugin.file-types', 'pass'], ['plugin.credential-forward', 'pass'], ['plugin.icon', 'pass']]);
+  const small = await pluginFolder('./assets/icon.png', { 'assets/icon.png': png(128, 96) });
+  assert.equal((await pluginChecks(plugin, small)).find((c) => c.id === 'plugin.icon')?.detail, './assets/icon.png is 128×96');
+
+  // claudePlugin.dir points at the plugin from the manifest's folder; with no plugin, a skip only when asked for.
+  const parent = join(clean, '..');
+  assert.equal((await pluginChecks({ ...plugin, claudePlugin: { dir: relative(parent, clean) } }, parent)).find((c) => c.id === 'plugin.icon')?.level, 'pass');
+  const empty = await mkdtemp(join(tmpdir(), 'mcplane-noplugin-'));
+  assert.deepEqual((await pluginChecks(plugin, empty, { explicit: true })).map((c) => [c.id, c.level]), [['plugin.files', 'skip']]);
+  assert.deepEqual(await pluginChecks(plugin, empty), []);
+});
+
+test('pluginChecks reads what git would commit, not ignored files', async (t) => {
+  const dir = await pluginFolder('./assets/icon.png', { 'assets/icon.png': png(512, 512), '.gitignore': 'secret.sh\nbuild/\n', 'secret.sh': '#!/bin/sh\n', 'build/out.js': 'x' });
+  try {
+    execFileSync('git', ['init', '-q', dir]);
+  } catch {
+    t.skip('git is not installed');
+    return;
+  }
+  const types = (await pluginChecks(plugin, dir)).find((c) => c.id === 'plugin.file-types')!;
+  assert.equal(types.level, 'pass', types.detail);
+  assert.equal(types.detail, '3 files in .');
+});
+
+test('pack claude-plugins: the directory’s file policy, credentials, icon and how a version goes live', async () => {
+  const dir = await pluginFolder('./assets/icon.svg', { 'assets/icon.svg': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"/>', 'scripts/run.sh': '#!/bin/sh\n' });
+  const pack = await packFor(plugin, 'claude-plugins', { dir });
+  assert.deepEqual(pack.problems, ['The plugin’s files meet the Claude plugin directory’s policy: not an allowed type: scripts/run.sh']);
+  assert.ok(pack.todo.some((t) => t.startsWith('The plugin’s icon is a square PNG: ./assets/icon.svg is SVG')), pack.todo.join('\n'));
+  const md = String(pack.files.find((f) => f.path === 'claude-plugins.md')!.content);
+  assert.match(md, /"Files outside the allowed types accepted only from Verified organizations"/);
+  assert.match(md, /"Update adds credential forward"/);
+  assert.match(md, /plugin-icons\/<hash>\/256\.png/);
+  assert.match(md, /An Approved version is not live until it's published/);
+  assert.match(md, /"Doesn't apply for now: no version of this plugin goes live without an Anthropic reviewer"/);
+  assert.match(md, /every Publish button is disabled while a publish request waits, and a waiting request carries over to the newest Approved version/);
+  assert.match(md, /Read the Review tab, not the header banner/);
+  assert.match(md, /A live version that no longer meets the policy keeps serving, with a notice/);
+  const none = await packFor(plugin, 'claude-plugins', { dir: await mkdtemp(join(tmpdir(), 'mcplane-noplugin-')) });
+  assert.ok(none.todo.some((t) => t.includes('Set claudePlugin.dir')));
+});
+
+test('pack claude-connectors: review criteria, editing a listing in review, the queue and MCP App screenshots', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mcplane-pack-'));
+  const tools = [
+    { name: 'publish', title: 'Publish', annotations: { readOnlyHint: false, openWorldHint: true, destructiveHint: false }, _meta: { ui: { resourceUri: 'ui://acme/card' } } },
+    { name: 'get_order', title: 'Get order', annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false } },
+  ];
+  await writeFile(join(dir, 'tools.json'), JSON.stringify({ tools }));
+  const m: Manifest = { name: 'acme', title: 'Acme', oneLiner: 'Acme orders.', server: { url: 'https://mcp.acme.dev/mcp', auth: 'oauth' }, reviewerAccess: 'reviewer@acme.dev, password in the form' };
+  const pack = await packFor(m, 'claude-connectors', { dir, tools: 'tools.json' });
+  const md = String(pack.files[0].content);
+  assert.match(md, /review-criteria\.md/);
+  assert.match(md, /"Transfer money, cryptocurrency, or other financial assets"/);
+  assert.match(md, /"collect conversation data beyond what the tool needs"/);
+  assert.match(md, /your server has an MCP App \(publish shows a ui:\/\/ resource\), so add 3 to 5 PNG screenshots/);
+  assert.ok(pack.todo.some((t) => t.includes('3 to 5 PNG screenshots')));
+  assert.match(md, /A reviewer test account is required/);
+  assert.match(md, /\*\*Update the copy reviewers see\*\* has Claude re-read your server's tools, prompts and MCP App through a custom connector/);
+  assert.match(md, /Customize > Connectors > Add custom connector, then sign in/);
+  assert.match(md, /\*\*Sync from server\*\* replaces the tool names/);
+  assert.match(md, /"Reviewers see what you save here, so you don't need to resubmit"/);
+  assert.match(md, /Withdrawing frees the slug but loses your place in the queue/);
+  assert.match(md, /claude-ai-mcp\/issues\/1192/);
+  assert.match(md, /mcp-review@anthropic\.com get automatic replies only/);
+  assert.match(md, /submission-status\.md/);
+  await writeFile(join(dir, 'tools.json'), JSON.stringify({ tools: [tools[1]] }));
+  const plain = await packFor(m, 'claude-connectors', { dir, tools: 'tools.json' });
+  assert.match(String(plain.files[0].content), /Screenshots: none needed: no tool shows an MCP App/);
+  assert.deepEqual(plain.todo, []);
 });

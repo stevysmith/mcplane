@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.8.0
+
+Claude's plugin directory: its new automatic policy check (8 November 2026)
+- `plugin.file-types` (blocks): from an organization Anthropic hasn't Verified, the directory refuses a version holding any file that isn't Markdown, text, JSON, YAML or a PNG, JPEG, GIF, WebP or ICO image, any file starting with `#!`, package manager files (package.json, lockfiles, .npmrc, pnpm-workspace.yaml) and text that isn't UTF-8 or holds NUL bytes ("Files outside the allowed types accepted only from Verified organizations"). A license, a README, .gitignore and the plugin's own icon may stay. The public pre-submission checklist is looser (it holds some binaries for a reviewer and allows SVG), but the portal refused Stacktree's version on these rules. Set `claudePlugin.verified` if your organization is Verified and it becomes a note.
+- `plugin.credential-forward` (warning): a file that reads a credential from the user's machine (`$ACME_API_KEY` in a SKILL.md curl example, a script or plugin.json, or a key file in the home folder) and sends something to a server. The directory holds it for a reviewer (MCP_FORWARDS_CREDENTIAL_ENV), and an update that adds one the live version didn't have goes to a human instead of auto-publishing. Ask for keys with userConfig (`sensitive: true`) or use the MCP server's OAuth.
+- `plugin.icon` (warning): plugin.json's icon isn't a square PNG. The directory makes its 256 px listing icon from that file; with an SVG, Stacktree's plugin got none and the portal showed the GitHub repo owner's avatar.
+- These read the plugin's own folder: `claudePlugin.dir` in mcplane.json, or the folder holding mcplane.json when it has `.claude-plugin/plugin.json`. In a git checkout they read the files git would commit.
+- New `pack claude-plugins`: the policy, then how a version goes live. Approved isn't live; the Overview tab's Auto-publish row can say it doesn't apply, and then every Publish button is disabled while a request waits, and a waiting request carries over to the newest Approved version. The header banner can still say a publish is waiting after the newest version was refused by policy, so read the Review tab. `drift` says the same.
+
+Claude's connector directory: its review criteria
+- `tools.no-instructions` now finds the steering the criteria reject, each from a description Stacktree rewrote: "Call this BEFORE any request…", "Then follow it", "Reach for this whenever…", "A rendered preview inside a tool is not a link", words in capitals ("say WHICH account", "RATHER THAN QUOTING NUMBERS…") and hidden characters. Naming a sibling tool to describe a workflow still passes.
+- `tools.no-promotion` (warning; ChatGPT and Claude): descriptions that name other companies' AI products ("a Grok Bot page, a ChatGPT Site, a Claude artifact"). Claude's criteria reject promoting products, and OpenAI's scan held Stacktree's publish_html updates from 22 October to 5 November for the same thing. The host assistant named on its own ("so Claude can show it") and your own product don't count.
+- `tools.money-crypto` now blocks for Claude connectors, which don't accept connectors that "Transfer money, cryptocurrency, or other financial assets". The fix says how Stacktree hides such tools from claude.ai only: every OAuth redirect URI on claude.ai or claude.com.
+- `tools.conversation-data` (warning): an input that asks for the user's task or the conversation, as feedback tools do. The criteria ask a connector not to "collect conversation data beyond what the tool needs".
+- `tools.title` now blocks for Claude connectors, whose criteria ask for a title plus readOnlyHint/destructiveHint on every tool. It stays a warning for plugins.
+- Claude connectors pack: the criteria; a listing that's In review is updated in place (Update the copy reviewers see, through a custom connector in the same organization; Sync from server; Save and update submission), since withdrawing loses your place in the queue; the long In review waits reported in anthropics/claude-ai-mcp#1192; 3 to 5 PNG screenshots for a server with an MCP App; a populated reviewer account.
+
+Muse
+- `listing.muse-challenge`: `preflight --muse-token <token>` (or `muse_token` on the MCP tool) fetches `https://<MCP host>/.well-known/muse-challenge/<token>` the way Muse's Verify server step does, with no credentials and no redirects, and checks the body is exactly `muse-challenge=<token>` as plain text on HTTPS port 443.
+- Muse pack: the portal at platform.muse.ai now shows three tasks: Business verification, Data processing questionnaire and Technical details, a wizard of Technical specs, Credentials, Verify server, Test and MCP listing. Verify before Test (verifying asks for the test again); the token lasts about 24 hours and Muse allows one attempt a minute. On 8 November the verifier said "We couldn't confirm what happened" three times with no request reaching the server, so check your logs before changing anything.
+
+mcplane/core
+- `toolChecks(tools, { own })` takes your own product names, so naming your product isn't counted as naming someone else's. `museChallengeCheck` is exported.
+
 ## 0.7.0
 
 MCP Events, read the way ChatGPT reads them

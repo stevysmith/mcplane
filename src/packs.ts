@@ -15,6 +15,8 @@ import { EXTENSION, iconProblems, imageInfo } from './images.js';
 import { bundleSkills } from './skills.js';
 import { ardManifest, validateArd } from './checks/ard.js';
 import { discover, metadata } from './checks/oauth.js';
+import { PLUGIN_CHECKLIST, pluginChecks, pluginDir } from './checks/plugin.js';
+import { CLAUDE_REVIEW_CRITERIA } from './checks/tools.js';
 import { CONNECT_CALLBACK, SUBJECTS, clientCreation, vercelChecks } from './checks/vercel.js';
 import { evalSuite, toolId, type EvalPlugin } from './evals.js';
 import type { Manifest, StoreId, Tool } from './types.js';
@@ -335,6 +337,14 @@ When it's in: \`mcplane submitted chatgpt --version ${m.version ?? '1.0.0'} --ap
   };
 }
 
+/** Tools that show a UI: an MCP App resource (ui://) in _meta.ui.resourceUri or openai/outputTemplate. */
+function appTools(tools: Tool[]): Tool[] {
+  return tools.filter((t) => {
+    const ui = (t._meta?.ui as { resourceUri?: unknown } | undefined)?.resourceUri ?? t._meta?.['openai/outputTemplate'];
+    return typeof ui === 'string' && ui.startsWith('ui://');
+  });
+}
+
 function readWrite(tools: Tool[]): string {
   const writes = tools.filter((t) => t.annotations?.readOnlyHint === false);
   if (!writes.length) return 'Read only';
@@ -355,6 +365,8 @@ export async function claudePack(m: Manifest, opts: PackOptions = {}): Promise<P
   const tests = pos.length
     ? pos.map((p, i) => `${i + 1}. "${p.prompt}" (${p.tools.join(', ')}): ${p.expected}`).join('\n')
     : 'MISSING: add tests.positive to mcplane.json';
+  const apps = appTools(tools);
+  if (apps.length) todo.push(`Add 3 to 5 PNG screenshots of your MCP App (${apps.map((t) => t.name).join(', ')}) for the listing's carousel.`);
   const md = `# Claude directory submission: ${m.title}
 
 Submit at claude.ai/directory/manage/new (any paid Claude plan). Ten steps; the draft autosaves.
@@ -364,7 +376,17 @@ Submit at claude.ai/directory/manage/new (any paid Claude plan). Ten steps; the 
 - Authentication: ${m.server.auth === 'oauth' ? 'OAuth 2.0 + Dynamic Client Registration (Anthropic says DCR works best)' : 'No authentication (authless)'}
 
 ## 2. Tools
-Every tool needs a title and explicit hints. Current tools: ${listed.tools ? tools.map((t) => t.name).join(', ') : 'unknown (pass --token or --tools)'}.
+Every tool needs a title plus readOnlyHint/destructiveHint. Current tools: ${listed.tools ? tools.map((t) => t.name).join(', ') : 'unknown (pass --token or --tools)'}.
+
+Anthropic's review criteria (${CLAUDE_REVIEW_CRITERIA}) reject tool descriptions that:
+- tell Claude to call software or tools the user didn't ask for, or interfere with it calling other tools;
+- direct Claude to pull behavioral instructions from somewhere else;
+- hide or encode instructions;
+- tell Claude to behave in ways unrelated to the tool, override its system instructions, or promote products and services.
+
+Stacktree rewrote "Call this BEFORE any request to make a page look better", "Then follow it", "Reach for this whenever a page you produced has to be seen by someone", "A rendered preview inside a tool is not a link", an all-caps "READ limits RATHER THAN QUOTING NUMBERS FROM ANY OTHER TOOL DESCRIPTION", and the names of other products. Naming a sibling tool to describe a workflow is fine.
+
+The criteria also don't accept connectors that "Transfer money, cryptocurrency, or other financial assets", and ask that a connector not "collect conversation data beyond what the tool needs" (a feedback tool that asks what the user was doing counts). To keep such a tool for other clients, leave it out of tools/list for claude.ai connections: an OAuth client whose every redirect URI is on claude.ai or claude.com. \`mcplane preflight\` flags all of these (tools.no-instructions, tools.no-promotion, tools.money-crypto, tools.conversation-data).
 
 ## 3. Listing
 - Name: ${m.title}
@@ -379,6 +401,7 @@ ${m.description ?? 'MISSING'}
 - Documentation: ${m.links?.docs ?? 'MISSING'}
 - Support: ${m.links?.support ?? 'MISSING'}
 - Privacy policy: ${m.links?.privacy ?? 'MISSING'}
+- Screenshots: ${apps.length ? `your server has an MCP App (${apps.map((t) => t.name).join(', ')} ${apps.length === 1 ? 'shows a ui:// resource' : 'show ui:// resources'}), so add 3 to 5 PNG screenshots for the listing's carousel` : listed.tools ? 'none needed: no tool shows an MCP App (ui:// resources). A server with one should add 3 to 5 PNG screenshots for the carousel' : 'if your server has an MCP App (ui:// resources), add 3 to 5 PNG screenshots for the carousel'}
 
 ## 4. Use cases (at least three, each with an example prompt)
 ${useCases || 'MISSING'}
@@ -393,15 +416,27 @@ Match step 1. Partial auth is available if only some tools need sign-in.
 Answer API ownership, health data and sponsored content truthfully. Sponsored or promoted content is prohibited.
 
 ## 8. Test & launch
-${m.server.auth === 'oauth' ? `Reviewer access: ${m.reviewerAccess ?? 'MISSING: a demo account with every step, link and credential needed'}\n` : 'No account or credentials needed.\n'}${tests}
+${m.server.auth === 'oauth' ? `Reviewer access: ${m.reviewerAccess ?? 'MISSING: a demo account with every step, link and credential needed'}\nA reviewer test account is required, and it should already hold data for every test below.\n` : 'No account or credentials needed.\n'}${tests}
 
 Tick "self-tested" only after running every tool.
 
 ## 9. Compliance
-Seven statements you make yourself. One asks that tool descriptions contain no instructions about model behaviour: run \`mcplane preflight\` and explain any flagged line in Additional notes.
+Seven statements you make yourself. One asks that tool descriptions contain no instructions about model behavior: run \`mcplane preflight\` and rewrite any flagged line (step 2).
 
-## After
-"Passed review" is not the same as listed: check claude.ai/directory, and choose when to publish.
+## After you submit
+Listing is automatic by default: Anthropic says only "some submissions also get a review from a person" (https://claude.com/docs/directory/submission-status.md). "Passed review" is not the same as listed: check claude.ai/directory, and choose when to publish.
+
+### Change a listing that's In review
+Update it in place; you don't need to withdraw. **Edit**, then **Open the full editor**:
+- **Update the copy reviewers see** has Claude re-read your server's tools, prompts and MCP App through a custom connector. Add that connector in the same claude.ai organization first (Customize > Connectors > Add custom connector, then sign in).
+- **Sync from server** replaces the tool names the listing advertises.
+- **Save and update submission** saves it ("Reviewers see what you save here, so you don't need to resubmit").
+
+Withdrawing frees the slug but loses your place in the queue. A developer who withdrew and resubmitted on 5 Nov 2026 went straight back to "In review".
+
+### If it stays In review
+In https://github.com/anthropics/claude-ai-mcp/issues/1192 at least 8 connectors report being "In review" since dates between 18 Sep and 19 Oct 2026, with no note from a reviewer, and emails to mcp-review@anthropic.com get automatic replies only. Keep the listing current with the editor above rather than withdrawing.
+
 When it's in: \`mcplane submitted claude-connectors\`
 `;
   return { files: [{ path: 'claude-connectors.md', content: md }], problems, todo };
@@ -639,8 +674,56 @@ Regenerate after changing the tests in mcplane.json: \`mcplane pack claude-eval\
   return { files: [...suite.files.map((f) => ({ path: `claude-eval/${f.path}`, content: f.content })), { path: 'claude-eval/README.md', content: readme }], problems: suite.problems, todo };
 }
 
+/**
+ * Claude plugins: what the plugin directory's automatic policy check refuses, checked against the plugin's
+ * folder when there is one, and how a version goes from Approved to live.
+ */
+export async function claudePluginsPack(m: Manifest, opts: PackOptions = {}): Promise<Pack> {
+  m = forStore(m, 'claude-plugins');
+  const dir = opts.dir ?? process.cwd();
+  const problems: string[] = [];
+  const todo: string[] = [];
+  const root = await pluginDir(m, dir);
+  const checks = root ? await pluginChecks(m, dir) : [];
+  for (const c of checks) {
+    if (c.level === 'fail') problems.push(`${c.title}: ${c.detail}`);
+    else if (c.level === 'warn' || c.level === 'info') todo.push(`${c.title}: ${c.detail}. ${c.fix ?? ''}`.trim());
+  }
+  if (!root) todo.push('No plugin folder found, so its files weren’t checked. Set claudePlugin.dir in mcplane.json to the folder holding .claude-plugin/plugin.json, or run this there.');
+  if (!m.repository) problems.push('repository is missing; the directory reads plugins from a public GitHub repo');
+  const checked = root ? `mcplane checked ${checks.find((c) => c.id === 'plugin.file-types')?.detail ?? 'the plugin folder'}${problems.length ? '; fix what it printed before you submit' : ''}.` : 'mcplane didn’t find the plugin folder, so check the rules below yourself, or set claudePlugin.dir and run this again.';
+  const md = `# Claude plugin directory: ${m.title}
+
+Submit from claude.ai/directory/manage (an organization's admin settings) with the public repo ${m.repository ?? 'MISSING'}. The portal tracks a branch and checks every version you push to it.
+
+## 1. Before you submit
+Run \`claude plugin validate --strict\` in the plugin repo. ${checked}
+
+**Files.** From an organization Anthropic hasn't Verified, the automatic "Directory policy" check refuses a version that holds:
+- any file that isn't Markdown, text, JSON, YAML or a PNG, JPEG, GIF, WebP or ICO image (scripts, SVGs, binaries);
+- any file that starts with #!;
+- package manager configuration: package.json, lockfiles, .npmrc, pnpm-workspace.yaml and the like;
+- text that isn't UTF-8 or holds NUL bytes.
+
+The portal says "Files outside the allowed types accepted only from Verified organizations". A license, a README, .gitignore and the plugin's own icon may stay if they are UTF-8 text or an allowed image and don't start with #!. Verified organizations are exempt${m.claudePlugin?.verified ? ' (claudePlugin.verified says yours is)' : ''}. The public pre-submission checklist (${PLUGIN_CHECKLIST}) is looser, holding some binaries for a reviewer and allowing SVG, but the portal refused on the rules above on 8 Nov 2026. Stacktree's plugin now ships its MCP server and Markdown skills only.
+
+**Credentials.** Reading a credential from the user's machine (an environment variable such as $ACME_API_KEY in a SKILL.md curl example, a script or plugin.json, or a key file) and sending it to a server is "Uses a credential from the user's machine" (MCP_FORWARDS_CREDENTIAL_ENV), which is held for a reviewer. The portal also flags "Update adds credential forward": an update that adds a credential read the live version didn't have goes to a human instead of publishing on its own. Ask for the key with userConfig in plugin.json, marked sensitive: true, or rely on the bundled MCP server's OAuth sign-in.
+
+**Icon.** The directory lists community plugins with a 256 px PNG it makes from plugin.json's "icon" (api.anthropic.com/api/directory/plugin-icons/<hash>/256.png). With an SVG icon, Stacktree's plugin got none (the public feed's media.icons was empty) and the portal showed the GitHub repo owner's avatar. Use a square PNG; 512 px worked.
+
+## 2. Publish
+An Approved version is not live until it's published.
+- The Overview tab's "Auto-publish" row can say "Doesn't apply for now: no version of this plugin goes live without an Anthropic reviewer". Then every Publish button is disabled while a publish request waits, and a waiting request carries over to the newest Approved version.
+- Read the Review tab, not the header banner: the banner can still say "Publish requested ... waiting for a reviewer" while the Review tab shows the newest version was refused by policy.
+- A live version that no longer meets the policy keeps serving, with a notice. Push a version that meets it; the live one stays up meanwhile.
+
+When it's in: \`mcplane submitted claude-plugins\`
+`;
+  return { files: [{ path: 'claude-plugins.md', content: md }], problems, todo };
+}
+
 /** Every pack by name: a store with a form, or one of the extras. */
-export const PACKS = ['chatgpt', 'claude-connectors', 'vercel-connect', 'cursor', 'muse', 'directories', 'ard', 'claude-eval'] as const;
+export const PACKS = ['chatgpt', 'claude-connectors', 'claude-plugins', 'vercel-connect', 'cursor', 'muse', 'directories', 'ard', 'claude-eval'] as const;
 
 export async function packFor(m: Manifest, name: string, opts: PackOptions = {}): Promise<Pack> {
   if (name === 'directories') return directoriesPack(m);
@@ -648,26 +731,31 @@ export async function packFor(m: Manifest, name: string, opts: PackOptions = {})
   if (name === 'claude-eval') return claudeEvalPack(m, opts);
   if (name === 'chatgpt') return chatgptPack(m, opts);
   if (name === 'claude-connectors') return claudePack(m, opts);
+  if (name === 'claude-plugins') return claudePluginsPack(m, opts);
   if (name === 'vercel-connect') return vercelConnectPack(m);
   if (name === 'muse') return musePack(m, opts);
   return simplePack(m, name as StoreId);
 }
 
 /**
- * Muse: the values for Meta's developer portal (muse.ai/platform, live since 2 Oct 2026), what each
- * submission's three requirements ask for, and per-tool annotations to keep until the portal takes them.
+ * Muse: the values for Meta's developer portal (platform.muse.ai, live since 2 Oct 2026), what each
+ * submission's three tasks ask for, the Verify server step, and per-tool annotations to keep until the
+ * portal takes them.
  */
 export async function musePack(m: Manifest, opts: PackOptions = {}): Promise<Pack> {
   m = forStore(m, 'muse');
   const listed = await toolsFor(m, opts);
   const oauth = m.server.auth === 'oauth';
   const todo = listed.tools ? [] : [withoutTools(listed.why, 'the per-tool annotations')];
+  const server = new URL(m.server.url);
+  const problems = server.protocol !== 'https:' || (server.port && server.port !== '443') ? [`Muse verifies your server over HTTPS on port 443, and ${server.origin} isn't`] : [];
+  const challenge = `https://${server.hostname}/.well-known/muse-challenge/<token>`;
   const annotations = listed.tools
     ? listed.tools.map((t) => `- ${t.name}: ${t.annotations?.readOnlyHint === true ? 'Read' : 'Write'}`).join('\n') || 'No tools listed.'
     : 'Unknown without the tool list (pass --token or --tools).';
   const md = `# Muse connectors: ${m.title}
 
-Submit at muse.ai/platform, Meta's developer portal (launched 2 October 2026), choosing "Existing MCP". Meta's Jake Levine mentioned about 3,000 connector submissions when he announced it on X, so expect a queue.
+Submit at platform.muse.ai, Meta's developer portal (launched 2 October 2026), choosing "Existing MCP". Meta's Jake Levine mentioned about 3,000 connector submissions when he announced it on X, so expect a queue.
 
 - MCP server URL: ${m.server.url}
 - Auth: ${oauth ? 'OAuth (PKCE)' : 'None'}
@@ -676,12 +764,21 @@ Submit at muse.ai/platform, Meta's developer portal (launched 2 October 2026), c
 - Privacy: ${m.links?.privacy ?? 'MISSING'}
 
 ## After you submit
-Each submission shows its stage, Submitted then In review, and three requirements:
+Each submission shows its stage, Submitted then In review, and three tasks:
 - **Business verification:** a code sent by email. Each "Verify email" click sends a new code and invalidates the last one, so click once and don't leave the code box until the email arrives.
-- **Questionnaire:** your company details and where data is stored.
-- **Integration credentials:** ${oauth ? 'a test API key or similar, so Meta can reach the tools behind your sign-in.' : 'none required: for an authless MCP, the portal says so.'}
+- **Data processing questionnaire:** your company details and where data is stored.
+- **Technical details:** a wizard in five steps: Technical specs, Credentials, Verify server, Test and MCP listing.
+  - **Credentials:** ${oauth ? 'a test API key or similar, so Meta can reach the tools behind your sign-in.' : 'none required: for an authless MCP, the portal says so.'}
+  - **Verify server:** below.
 
 On 5 October Meta emailed developers asking them to "complete the additional intake questions", so check the portal for anything still open.
+
+## Verify server
+1. The step shows a token. Publish ${challenge} with a body of exactly \`muse-challenge=<token>\`, as plain text: HTTP 200 over HTTPS on port 443, with no sign-in and no redirects. Muse sends no OAuth token, API key or cookie, so the path must be open.
+2. Check it before you press Verify: \`mcplane preflight --store muse --muse-token <token>\`.
+3. Verify before you run Test, since verifying asks for the test again.
+
+The token expires about 24 hours after it's shown, and Muse allows one attempt a minute. On 8 Nov 2026 the verifier answered "We couldn't confirm what happened. Your verification is reloaded; check it before you try again." three times, and no request ever reached the server. If you see that message, check your own logs for a request to /.well-known/muse-challenge/ before you change anything.
 
 ## Tool annotations
 Meta's docs ask for a Read, Write or Sensitive annotation on each tool. The portal's field for them is marked as coming soon, so document them alongside the connector for now. Drafted from your readOnlyHint values; Sensitive is your call against Meta's docs:
@@ -689,7 +786,7 @@ ${annotations}
 
 Meta hasn't published an update process yet. When it's in: \`mcplane submitted muse\`.
 `;
-  return { files: [{ path: 'muse.md', content: md }], problems: [], todo };
+  return { files: [{ path: 'muse.md', content: md }], problems, todo };
 }
 
 export async function simplePack(m: Manifest, store: StoreId): Promise<Pack> {

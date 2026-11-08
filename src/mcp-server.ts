@@ -38,19 +38,20 @@ export async function serve(): Promise<void> {
     {
       title: 'Check an MCP server against store review rules',
       description:
-        'Checks a live MCP server, its listing links, icon and plugin repo against the known rejection causes of ChatGPT, Claude, Cursor, Grok, Muse, Vercel Connect and the MCP Registry, plus its ARD manifest and its readiness for MCP 2026-07-28 (checks whose id starts with "readiness."; never blocking). For OAuth servers it also walks the sign-in chain with plain GETs (the authorization endpoint, then the sign-in pages in sign_in or server.signIn) looking for bot challenges and 403s. Returns each check with pass, warn, fail, skip or info (a note that never blocks), what was found and how to fix it, plus reminders that no script can verify. Uses mcplane.json, or a url for a server without one.',
+        'Checks a live MCP server, its listing links, icon, plugin repo and the Claude plugin’s own files against the known rejection causes of ChatGPT, Claude, Cursor, Grok, Muse, Vercel Connect and the MCP Registry, plus its ARD manifest and its readiness for MCP 2026-07-28 (checks whose id starts with "readiness."; never blocking). For OAuth servers it also walks the sign-in chain with plain GETs (the authorization endpoint, then the sign-in pages in sign_in or server.signIn) looking for bot challenges and 403s. Returns each check with pass, warn, fail, skip or info (a note that never blocks), what was found and how to fix it, plus reminders that no script can verify. Uses mcplane.json, or a url for a server without one.',
       inputSchema: {
         project: PROJECT,
         url: z.string().url().optional(),
         stores: z.array(STORE).optional(),
         sign_in: z.array(z.string().url()).optional().describe('Sign-in pages or identity-provider URLs the consent screen uses, added to server.signIn.'),
+        muse_token: z.string().optional().describe('The token Muse’s Verify server step shows, to check the file it asks for at /.well-known/muse-challenge/<token>.'),
       },
       annotations: { title: 'Preflight', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    async ({ project, url, stores, sign_in }) => {
+    async ({ project, url, stores, sign_in, muse_token }) => {
       const m = url ? await draftManifest(url) : await loadManifest(dirOf(project));
       if (sign_in?.length) m.server.signIn = [...(m.server.signIn ?? []), ...sign_in];
-      const r = await preflight(m, { stores, token: token() });
+      const r = await preflight(m, { stores, token: token(), dir: url ? undefined : dirOf(project), museToken: muse_token });
       const fails = r.checks.filter((c) => c.level === 'fail').length;
       return reply(r, `${fails} blocking, ${r.checks.filter((c) => c.level === 'warn').length} to review, ${r.checks.filter((c) => c.level === 'info').length} notes, ${r.checks.filter((c) => c.level === 'pass').length} passed.`);
     },
@@ -77,7 +78,7 @@ export async function serve(): Promise<void> {
     {
       title: 'Write a submission pack',
       description:
-        'Writes everything a store’s submission form asks for into .mcplane/packs: the plugin ZIP ChatGPT’s portal uploads (listing, icons, 5+3 tests, release notes, and the skills in chatgpt.skills) with a checklist for the dashboard-only steps, markdown packs for claude-connectors, vercel-connect (Submit a Service values, OAuth method and token test), cursor and muse, and one sheet for the form-only directories. Also ard (a manifest for /.well-known/ard.json) and claude-eval (a "claude plugin eval" suite from the review tests). Returns the files written and any problems to fix first.',
+        'Writes everything a store’s submission form asks for into .mcplane/packs: the plugin ZIP ChatGPT’s portal uploads (listing, icons, 5+3 tests, release notes, and the skills in chatgpt.skills) with a checklist for the dashboard-only steps, markdown packs for claude-connectors, claude-plugins (the plugin directory’s file policy and how publishing works), vercel-connect (Submit a Service values, OAuth method and token test), cursor and muse, and one sheet for the form-only directories. Also ard (a manifest for /.well-known/ard.json) and claude-eval (a "claude plugin eval" suite from the review tests). Returns the files written and any problems to fix first.',
       inputSchema: {
         project: PROJECT,
         store: z.enum(PACKS),

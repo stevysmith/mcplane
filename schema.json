@@ -308,7 +308,7 @@
     "claudePlugin": {
       "type": "object",
       "additionalProperties": false,
-      "description": "The Claude Code plugin that ships this server, for \"mcplane pack claude-eval\". Read from the plugin repo when left out.",
+      "description": "The Claude Code plugin that ships this server, for \"mcplane pack claude-eval\" and the Claude plugin directory's file checks. Name and server are read from the plugin repo when left out.",
       "properties": {
         "name": {
           "type": "string",
@@ -317,6 +317,14 @@
         "server": {
           "type": "string",
           "description": "The server's key in the plugin's .mcp.json (or plugin.json mcpServers)."
+        },
+        "dir": {
+          "type": "string",
+          "description": "The plugin's folder (the one holding .claude-plugin/plugin.json), relative to mcplane.json. Defaults to mcplane.json's own folder when it holds .claude-plugin/plugin.json."
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "Your organization is Verified by Anthropic, which exempts it from the plugin directory's file-type rules."
         }
       }
     },
